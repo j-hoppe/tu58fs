@@ -1,4 +1,4 @@
-/* hostdir.h: manage the shared directory on the host running tu58em
+/* hostdir.h: manage the shared directory on the host running tu58fs
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com

@@ -153,7 +153,7 @@ static char * examples[] =
 				"    Image is constructed from file content, to a max size of 256kb, else error.\n", //
 				"    Can be accessed with \"DD1:\"\n", //
 				"\n",
-				PROGNAME "<serial params> -size auto -rt11 -d 1 w tinyrt11\n", //
+				PROGNAME " <serial params> -size auto -rt11 -d 1 w tinyrt11\n", //
 				"    Same, but device image is automatically enlarged to > 256KB, max 32MB.\n", //
 				"    A modified DD.SYS driver must be used on the RT11 system,\n", //
 				"\n", //
@@ -177,7 +177,7 @@ static char * examples[] =
 				"    Define device #0:\n", //
 				"    Standard 256kb image, loaded from file \"11xxdp.dir\", not created.\n", //
 				"    Dir is bootable, if it contains the pseudo files for monitor and boot block.\n", //
-				"    A bootable dir is can be created by unpacking an bootable image file.\n", //
+				"    A bootable dir is can be created by unpacking a bootable image file.\n", //
 				"\n", //
 				NULL };
 
@@ -187,7 +187,7 @@ void help() {
 	fprintf(ferr, "%s\n", copyright);
 
 	fprintf(ferr, "\n");
-	fprintf(ferr, "Online at www.retrocmp.com/tools/tu58fs \n");
+	fprintf(ferr, "See also www.retrocmp.com/tools/tu58fs \n");
 	fprintf(ferr, "\n");
 	fprintf(ferr, "Command line summary:\n\n");
 	// getop must be intialized to print the syntax
@@ -271,7 +271,7 @@ static void parse_commandline(int argc, char **argv) {
 	getopt_def(&getopt_parser, "sb", "stopbits", "count", NULL, "1", "Set 1 or 2 stop bits.",
 	NULL, NULL, NULL, NULL);
 	getopt_def(&getopt_parser, "p", "port", "device", NULL, "1",
-			"Select serial port [1..N] or \"/dev/com\"N",
+			"Select serial port: \"COM<device>:\" or <device> is a node like \"/dev/ttyS1\"",
 			NULL, NULL, NULL, NULL);
 
 	getopt_def(&getopt_parser, "xx", "xxdp", NULL, NULL, NULL,
@@ -312,7 +312,7 @@ static void parse_commandline(int argc, char **argv) {
 
 	getopt_def(&getopt_parser, "ot", "offlinetimeout", "seconds", NULL, "5",
 			"By hitting a number-key 0..7, the device goes offline for user control.\n"
-					"PDP traffic shall not be interupted,  so Offline state is entered delayed\n"
+					"PDP traffic shall not be interrupted,  so \"offline\" state is entered delayed\n"
 					"after RS232 port is silent for this period.",
 			NULL, NULL, NULL, NULL);
 
@@ -325,11 +325,12 @@ static void parse_commandline(int argc, char **argv) {
 					"A filesystem type must be specified (like -xxdp)",
 			NULL, NULL, NULL, NULL);
 
+/*
 	// test options
 	getopt_def(&getopt_parser, "testfs", "testfs", "filename", NULL, NULL,
 			"Read an image, convert it to filesystem and test",
 			NULL, NULL, NULL, NULL);
-
+*/
 	if (argc < 2)
 		help(); // at least 1 required
 
