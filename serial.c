@@ -55,11 +55,6 @@
 #include "serial.h"	// own
 
 
-#ifdef WINCOMM
-#include <windef.h>
-#include <winbase.h>
-#endif // WINCOMM
-
 #ifdef MACOSX
 #define IUCLC 0 // Not POSIX
 #define OLCUC 0 // Not POSIX
@@ -70,8 +65,10 @@
 
 #define	BUFSIZE	256	// size of serial line buffers (bytes, each way)
 
-// last time someting was received
-uint64_t serial_lastrxtime_ms ;
+// last time something was received/transmitted
+// if > now: transmit in progress
+uint64_t serial_rx_lasttime_ms ;
+uint64_t serial_tx_lasttime_ms ;
 
 // serial output buffer
 static uint8_t wbuf[BUFSIZE];
@@ -83,46 +80,13 @@ static uint8_t rbuf[BUFSIZE];
 static uint8_t *rptr;
 static int32_t rcnt;
 
-#ifdef WINCOMM
-// serial device descriptor, default to nada
-static HANDLE hDevice = INVALID_HANDLE_VALUE;
-// async line parameters
-static DCB dcbSave;
-static COMMTIMEOUTS ctoSave;
-#else // !WINCOMM
 // serial device descriptor, default to nada
 static int32_t device = -1;
 // async line parameters
 static struct termios lineSave;
-#endif // !WINCOMM
 
 // console parameters
 static struct termios consSave;
-
-
-
-#ifdef WINCOMM
-//
-// delay routine
-//
-static void delay_ms (int32_t ms)
-{
-    struct timespec rqtp;
-    int32_t sts;
-
-    // check if any delay required
-    if (ms <= 0) return;
-
-    // compute integer seconds and fraction (in nanoseconds)
-    rqtp.tv_sec = ms / 1000L;
-    rqtp.tv_nsec = (ms % 1000L) * 1000000L;
-
-    // if nanosleep() fails then just plain sleep()
-    if ((sts = nanosleep(&rqtp, NULL)) == -1) sleep(rqtp.tv_sec);
-
-    return;
-}
-#endif // WINCOMM
 
 
 
@@ -131,12 +95,7 @@ static void delay_ms (int32_t ms)
 //
 void devtxstop (void)
 {
-#ifdef WINCOMM
-    if (!EscapeCommFunction(hDevice, SETXOFF))
-	error("devtxstop(): error=%d", GetLastError());
-#else // !WINCOMM
     tcflow(device, TCOOFF);
-#endif // !WINCOMM
     return;
 }
 
@@ -147,12 +106,7 @@ void devtxstop (void)
 //
 void devtxstart (void)
 {
-#ifdef WINCOMM
-    if (!EscapeCommFunction(hDevice, SETXON))
-	error("devtxstart(): error=%d", GetLastError());
-#else // !WINCOMM
     tcflow(device, TCOON);
-#endif // !WINCOMM
     return;
 }
 
@@ -163,15 +117,7 @@ void devtxstart (void)
 //
 void devtxbreak (void)
 {
-#ifdef WINCOMM
-    if (!SetCommBreak(hDevice))
-	error("devtxbreak(set): error=%d", GetLastError());
-    delay_ms(250);
-    if (!ClearCommBreak(hDevice))
-	error("devtxbreak(clear): error=%d", GetLastError());
-#else // !WINCOMM
     tcsendbreak(device, 0);
-#endif // !WINCOMM
     return;
 }
 
@@ -183,12 +129,7 @@ void devtxbreak (void)
 void devtxinit (void)
 {
     // flush all output
-#ifdef WINCOMM
-    if (!PurgeComm(hDevice, PURGE_TXABORT|PURGE_TXCLEAR))
-	error("devtxinit(): error=%d", GetLastError());
-#else // !WINCOMM
     tcflush(device, TCOFLUSH);
-#endif // !WINCOMM
 
     // reset send buffer
     wcnt = 0;
@@ -205,12 +146,7 @@ void devtxinit (void)
 void devrxinit (void)
 {
     // flush all input
-#ifdef WINCOMM
-    if (!PurgeComm(hDevice, PURGE_RXABORT|PURGE_RXCLEAR))
-	error("devrxinit(): error=%d", GetLastError());
-#else // !WINCOMM
     tcflush(device, TCIFLUSH);
-#endif // !WINCOMM
 
     // reset receive buffer
     rcnt = 0;
@@ -227,35 +163,8 @@ void devrxinit (void)
 //
 int32_t devrxerror (void)
 {
-#ifdef WINCOMM
-    // enable BREAK and ERROR events
-    OVERLAPPED ovlp = { 0 };
-    DWORD sts = 0;
-    if (!SetCommMask(hDevice, EV_BREAK|EV_ERR)) {
-	DWORD err = GetLastError();
-	if (err != ERROR_OPERATION_ABORTED)
-	    error("devrxerror(): SetCommMask() failed, error=%d", err);
-    }
-    // do the status check
-    ovlp.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-    if (!WaitCommEvent(hDevice, &sts, &ovlp)) {
-	DWORD err = GetLastError();
-	if (err == ERROR_IO_PENDING) {
-	    if (WaitForSingleObject(ovlp.hEvent, INFINITE) == WAIT_OBJECT_0)
-		GetOverlappedResult(hDevice, &ovlp, &sts, FALSE);
-	} else {
-	    if (err != ERROR_OPERATION_ABORTED)
-		error("devrxerror(): WaitCommEvent() failed, error=%d", err);
-	}
-    }
-    // done
-    CloseHandle(ovlp.hEvent);
-    // indicate either a break or some other error or OK
-    return (sts & (CE_BREAK|CE_FRAME)) ? DEV_BREAK : (sts ? DEV_ERROR : DEV_OK);
-#else // !WINCOMM
     // not implemented
     return DEV_NYI;
-#endif // !WINCOMM
 }
 
 
@@ -267,35 +176,7 @@ int32_t devrxavail (void)
 {
     // get more characters if none available
     if (rcnt <= 0) {
-#ifdef WINCOMM
-	OVERLAPPED ovlp = { 0 };
-	COMSTAT stat;
-	DWORD acnt = 0;
-	DWORD sts = 0;
-	// clear state
-	if (!ClearCommError(hDevice, &sts, &stat))
-	    error("devrxavail(): ClearCommError() failed");
-	if (debug && (sts || stat.cbInQue))
-	    info("devrxavail(): status=0x%04X avail=%d", sts, stat.cbInQue);
-	// do the read if something there
-	if (stat.cbInQue > 0) {
-	    ovlp.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-	    if (!ReadFile(hDevice, rbuf, sizeof(rbuf), &acnt, &ovlp)) {
-		DWORD err = GetLastError();
-		if (err == ERROR_IO_PENDING) {
-		    if (WaitForSingleObject(ovlp.hEvent, INFINITE) == WAIT_OBJECT_0)
-			GetOverlappedResult(hDevice, &ovlp, &acnt, FALSE);
-		} else {
-		    error("devrxavail(): error=%d", err);
-		}
-	    }
-	    CloseHandle(ovlp.hEvent);
-	}
-	// done
-	rcnt = acnt;
-#else // !WINCOMM
 	rcnt = read(device, rbuf, sizeof(rbuf));
-#endif // !WINCOMM
 	rptr = rbuf;
     }
     if (rcnt < 0) rcnt = 0;
@@ -313,37 +194,15 @@ int32_t devtxwrite (uint8_t *buf,
 		    int32_t cnt)
 {
     // write characters if asked, return number written
+	int32_t result = 0 ;
     if (cnt > 0) {
-#ifdef WINCOMM
-	OVERLAPPED ovlp = { 0 };
-	COMSTAT stat;
-	DWORD acnt = 0;
-	DWORD sts = 0;
-	// clear state
-	if (!ClearCommError(hDevice, &sts, &stat))
-	    error("devtxwrite(): ClearCommError() failed");
-	if (debug && (sts || stat.cbOutQue))
-	    info("devtxwrite(): status=0x%04X remain=%d", sts, stat.cbOutQue);
-	// do the write
-	ovlp.hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-	if (!WriteFile(hDevice, buf, cnt, &acnt, &ovlp)) {
-	    DWORD err = GetLastError();
-	    if (err == ERROR_IO_PENDING) {
-		if (WaitForSingleObject(ovlp.hEvent, INFINITE) == WAIT_OBJECT_0)
-		    GetOverlappedResult(hDevice, &ovlp, &acnt, FALSE);
-	    } else {
-		error("devtxwrite(): error=%d", err);
-	    }
-	}
-	// done
-	CloseHandle(ovlp.hEvent);
-	return acnt;
-#else // !WINCOMM
-	return write(device, buf, cnt);
-#endif // !WINCOMM
+		// write is monolitic and may take long
+		// make sure serial_tx_lasttime_ms doe not time out
+		serial_tx_lasttime_ms = now_ms() + 60000 ; // signal busy: 1 minute in the future
+	    result = write(device, buf, cnt);
+	    serial_tx_lasttime_ms = now_ms() ; // now up to date
     }
-    // nothing done if we got here
-    return 0;
+    return result;
 }
 
 
@@ -366,12 +225,7 @@ void devtxflush (void)
     wptr = wbuf;
 
     // wait until all characters are transmitted
-#ifdef WINCOMM
-    if (!FlushFileBuffers(hDevice))
-	error("devtxflush(): FlushFileBuffers() failed, error=%d", GetLastError());
-#else // !WINCOMM
     tcdrain(device);
-#endif // !WINCOMM
 
     return;
 }
@@ -386,8 +240,7 @@ uint8_t devrxget (void)
     // get more characters if none available
     while (devrxavail() <= 0) /*spin*/;
 
-    serial_lastrxtime_ms = now_ms() ; // signal activity
-
+    serial_rx_lasttime_ms = now_ms() ; // signal activity
 
     // count, return next character
     rcnt--;
@@ -408,6 +261,9 @@ void devtxput (uint8_t c)
     // count, add one character to buffer
     wcnt++;
     *wptr++ = c;
+
+    serial_tx_lasttime_ms = now_ms() ; // signal activity
+
     return;
 }
 
@@ -418,28 +274,6 @@ void devtxput (uint8_t c)
 //
 static int32_t devbaud (int32_t rate)
 {
-#ifdef WINCOMM
-    static int32_t baudlist[] = { 3000000, 3000000,
-				  2500000, 2500000,
-				  2000000, 2000000,
-				  1500000, 1500000,
-				  1152000, 1152000,
-				  1000000, 1000000,
-				  921600,  921600,
-				  576000,  576000,
-				  500000,  500000,
-				  460800,  460800,
-				  230400,  230400,
-				  115200,  115200,
-				  57600,   57600,
-				  38400,   38400,
-				  19200,   19200,
-				  9600,    9600,
-				  4800,    4800,
-				  2400,    2400,
-				  1200,    1200,
-			          -1,	   -1 };
-#else // !WINCOMM
     static int32_t baudlist[] = { 3000000, B3000000,
 				  2500000, B2500000,
 				  2000000, B2000000,
@@ -460,7 +294,6 @@ static int32_t devbaud (int32_t rate)
 				  2400,    B2400,
 				  1200,    B1200,
 			          -1,	    -1 };
-#endif // !WINCOMM
     int32_t *p = baudlist;
     int32_t r;
 
@@ -480,71 +313,9 @@ void devinit (char *port,
 	      int32_t speed,
 	      int32_t stop)
 {
-    serial_lastrxtime_ms = 0;
+    serial_rx_lasttime_ms = 0;
+    serial_tx_lasttime_ms = 0;
 
-#ifdef WINCOMM
-
-    // init win32 serial port mode
-    DCB dcb;
-    COMMTIMEOUTS cto;
-    char name[64];
-    int32_t n;
-
-    // open serial port
-    int32_t euid = geteuid();
-    int32_t uid = getuid();
-    setreuid(euid, -1);
-    if (sscanf(port, "%u", &n) == 1) sprintf(name, "\\\\.\\COM%d", n); else strcpy(name, port);
-    hDevice = CreateFile(name, GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
-			 FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OVERLAPPED, NULL);
-    if (hDevice == INVALID_HANDLE_VALUE) fatal("no serial line [%s]", name);
-    setreuid(uid, euid);
-
-    // get current line params, error if not a serial port
-    if (!GetCommState(hDevice, &dcbSave)) fatal("GetCommState() failed");
-    if (!GetCommTimeouts(hDevice, &ctoSave)) fatal("GetCommTimeouts() failed");
-
-    // copy current parameters
-    dcb = dcbSave;
-    cto = ctoSave;
-
-    // set baud rate
-    if (devbaud(speed) == -1)
-	error("illegal serial speed %d., ignoring", speed);
-    else
-	dcb.BaudRate = devbaud(speed);
-
-    // update other line parameters
-    dcb.fBinary = TRUE;
-    dcb.fParity = FALSE;
-    dcb.fOutxCtsFlow = FALSE;
-    dcb.fOutxDsrFlow = FALSE;
-    dcb.fDtrControl = DTR_CONTROL_ENABLE;
-    dcb.fRtsControl = RTS_CONTROL_ENABLE;
-    dcb.fDsrSensitivity = FALSE;
-    dcb.fTXContinueOnXoff = TRUE;
-    dcb.fInX = FALSE;
-    dcb.fOutX = FALSE;
-    dcb.fNull = FALSE;
-    dcb.fErrorChar = FALSE;
-    dcb.fAbortOnError = FALSE;
-    dcb.ByteSize = 8;
-    dcb.Parity = NOPARITY;
-    dcb.StopBits = (stop == 2) ? TWOSTOPBITS : ONESTOPBIT;
-
-    // timing/read param
-    cto.ReadIntervalTimeout = MAXDWORD;
-    cto.ReadTotalTimeoutMultiplier = 0;
-    cto.ReadTotalTimeoutConstant = 0;
-    cto.WriteTotalTimeoutMultiplier = 0;
-    cto.WriteTotalTimeoutConstant = 0;
-
-    // ok, set new param
-    if (!SetupComm(hDevice, BUFSIZE, BUFSIZE)) fatal("SetupComm() failed");
-    if (!SetCommState(hDevice, &dcb)) fatal("SetCommState() failed");
-    if (!SetCommTimeouts(hDevice, &cto)) fatal("SetCommTimeouts() failed");
-
-#else // !WINCOMM
 
     // init unix serial port mode
     struct termios line;
@@ -613,8 +384,6 @@ void devinit (char *port,
     if (fcntl(device, F_SETFL, FNDELAY) == -1)
 	error("failed to set non-blocking read");
 
-#endif // !WINCOMM
-
     // zap current data, if any
     devtxinit();
     devrxinit();
@@ -629,15 +398,9 @@ void devinit (char *port,
 //
 void devrestore (void)
 {
-#ifdef WINCOMM
-    if (!CloseHandle(hDevice))
-	error("devrestore(): error=%d", GetLastError());
-    hDevice = INVALID_HANDLE_VALUE;
-#else // !WINCOMM
     tcsetattr(device, TCSANOW, &lineSave);
     close(device);
     device = -1;
-#endif // !WINCOMM
     return;
 }
 

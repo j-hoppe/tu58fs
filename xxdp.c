@@ -61,6 +61,7 @@
  *  Created on: 12.01.2017
  *      Author: root
  */
+#define _XXDP_C_
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -72,14 +73,12 @@
 #include <utime.h>
 #include <fcntl.h>
 
+#include "error.h"
 #include "utils.h"
-#include "boolarray.h"
 #include "image.h"	// only for old xxdp_init()
+#include "device_info.h"
+#include "xxdp_radi.h"
 #include "xxdp.h"	// own
-
-// pseudo filenames
-#define XXDP_BOOTBLOCK_FILENAME	"$BOOT.BLK" // valid XXDP file names
-#define XXDP_MONITOR_FILENAME	"$MONI.TOR"
 
 // sort order for files. For regexes the . must be escaped by \.
 // and a * is .*"
@@ -101,19 +100,20 @@ char * xxdp_fileorder[] = { "XXDPSM\\.SYS", "XXDPXM\\.SYS", "DRSSM\\.SYS", "DRSX
 #define IMAGE_SIZE(_this) (*((_this)->image_size_ptr))
 #define IMAGE_DATA(_this) (*((_this)->image_data_ptr))
 // ptr to first byte of block
-#define IMAGE_BLOCK(_this, blocknr) (IMAGE_DATA(_this) + (XXDP_BLOCKSIZE *(blocknr)))
+#define IMAGE_BLOCKNR2PTR(_this, blocknr) (IMAGE_DATA(_this) + (XXDP_BLOCKSIZE *(blocknr)))
 
 // fetch/write a 16bit word in the image
 // LSB first
-static uint16_t xxdp_image_get_word(xxdp_filesystem_t *_this, blocknr_t blocknr, uint8_t wordnr) {
+static uint16_t xxdp_image_get_word(xxdp_filesystem_t *_this, xxdp_blocknr_t blocknr,
+		uint8_t wordnr) {
 	uint32_t idx = XXDP_BLOCKSIZE * blocknr + (wordnr * 2);
 	assert(idx >= 0 && (idx+1) < IMAGE_SIZE(_this));
 
 	return IMAGE_DATA(_this)[idx] | (IMAGE_DATA(_this)[idx + 1] << 8);
 }
 
-static void xxdp_image_set_word(xxdp_filesystem_t *_this, blocknr_t blocknr, uint8_t wordnr,
-		uint16_t val) {
+static void xxdp_image_set_word(xxdp_filesystem_t *_this, xxdp_blocknr_t blocknr,
+		uint8_t wordnr, uint16_t val) {
 	uint32_t idx = XXDP_BLOCKSIZE * blocknr + (wordnr * 2);
 	assert(idx >= 0 && (idx+1) < IMAGE_SIZE(_this));
 
@@ -124,8 +124,9 @@ static void xxdp_image_set_word(xxdp_filesystem_t *_this, blocknr_t blocknr, uin
 
 // scan linked list at block # 'start'
 // bytes 0,1 = 1st word in block are # of next. Last blck has link "0".
-static int xxdp_blocklist_get(xxdp_filesystem_t *_this, xxdp_blocklist_t *bl, blocknr_t start) {
-	blocknr_t blocknr = start;
+static int xxdp_blocklist_get(xxdp_filesystem_t *_this, xxdp_blocklist_t *bl,
+		xxdp_blocknr_t start) {
+	xxdp_blocknr_t blocknr = start;
 	unsigned n = 0; // count blocks
 	do {
 		bl->blocknr[n++] = blocknr;
@@ -133,11 +134,10 @@ static int xxdp_blocklist_get(xxdp_filesystem_t *_this, xxdp_blocklist_t *bl, bl
 		blocknr = xxdp_image_get_word(_this, blocknr, 0);
 	} while (n < XXDP_MAX_BLOCKS_PER_LIST && blocknr > 0);
 	bl->count = n;
-	if (blocknr) {
-		fprintf(ferr, "xxdp_blocklist_get(): block list too long or recursion");
-		return -1;
-	}
-	return 0;
+	if (blocknr)
+		return error_set(ERROR_FILESYSTEM_FORMAT,
+				"xxdp_blocklist_get(): block list too long or recursion");
+	return ERROR_OK;
 }
 
 static void xxdp_blocklist_set(xxdp_filesystem_t *_this, xxdp_blocklist_t *bl) {
@@ -154,7 +154,7 @@ static int xxdp_bitmap_count(xxdp_filesystem_t *_this) {
 	int result = 0;
 	int i, j, k;
 	for (i = 0; i < _this->bitmap->blocklist.count; i++) {
-		blocknr_t map_blknr = _this->bitmap->blocklist.blocknr[i];
+		xxdp_blocknr_t map_blknr = _this->bitmap->blocklist.blocknr[i];
 		int map_wordcount;
 		map_wordcount = xxdp_image_get_word(_this, map_blknr, 2);
 		for (j = 0; j < map_wordcount; j++) {
@@ -178,10 +178,10 @@ static void xxdp_filesystem_mark_files_as_changed(xxdp_filesystem_t *_this) {
 		xxdp_file_t *f = _this->file[i];
 		f->changed = 0;
 		if (_this->image_changed_blocks)
-			for (j = 0; j < f->blocklist.count; j++) {
-				int blknr = f->blocklist.blocknr[j];
-				f->changed |= boolarray_bit_get(_this->image_changed_blocks, blknr);
-			}
+		for (j = 0; !f->changed && j < f->blocklist.count; j++) {
+			int blknr = f->blocklist.blocknr[j];
+			f->changed |= boolarray_bit_get(_this->image_changed_blocks, blknr);
+		}
 	}
 }
 
@@ -190,15 +190,19 @@ static void xxdp_filesystem_mark_files_as_changed(xxdp_filesystem_t *_this) {
  *************************************************************************/
 
 // before first use. Link with image data buffer
-xxdp_filesystem_t *xxdp_filesystem_create(dec_device_t dec_device, uint8_t **image_data_ptr,
+xxdp_filesystem_t *xxdp_filesystem_create(device_type_t dec_device, uint8_t **image_data_ptr,
 		uint32_t *image_size_ptr, boolarray_t *changedblocks, int expandable) {
 	xxdp_filesystem_t *_this;
 	int i;
 	_this = malloc(sizeof(xxdp_filesystem_t));
 	_this->dec_device = dec_device;
-	// Random Access Device Information
-	_this->radi = &(xxdp_radi[_this->dec_device]);
-
+	_this->device_info = (device_info_t*) search_tagged_array(device_info_table,
+			sizeof(device_info_t), _this->dec_device);
+	assert(_this->device_info);
+	// Search Random Access Device Information
+	_this->radi = (xxdp_radi_t*) search_tagged_array(xxdp_radi, sizeof(xxdp_radi_t),
+			_this->dec_device);
+	assert(_this->radi);
 	// save pointer to variables defining image buffer data
 	_this->image_data_ptr = image_data_ptr;
 	_this->image_size_ptr = image_size_ptr;
@@ -226,7 +230,7 @@ xxdp_filesystem_t *xxdp_filesystem_create(dec_device_t dec_device, uint8_t **ima
 }
 
 void xxdp_filesystem_destroy(xxdp_filesystem_t *_this) {
-	xxdp_filesystem_init(_this);
+	xxdp_filesystem_init(_this); // free files
 	free(_this->bootblock);
 	free(_this->monitor);
 	free(_this->bitmap);
@@ -246,18 +250,15 @@ void xxdp_filesystem_init(xxdp_filesystem_t *_this) {
 		_this->bitmap->used[i] = 0;
 
 	// set device params
-	_this->blockcount = _this->radi->device_blocks_num;
+	_this->blockcount = _this->radi->blocks_num;
+	// trunc large devices, only 64K blocks addressable = 32MB
 	if (_this->blockcount > XXDP_MAX_BLOCKCOUNT)
-		// trunc large devices, only 64K blocks
 		_this->blockcount = XXDP_MAX_BLOCKCOUNT;
 	_this->preallocated_blockcount = _this->radi->prealloc_blocks_num;
 	_this->bootblock->blocknr = _this->radi->boot_block;
 	_this->bootblock->blockcount = 0; // may not exist
-	_this->bootblock->filename = XXDP_BOOTBLOCK_FILENAME;
 	_this->monitor->blocknr = _this->radi->monitor_block;
 	_this->monitor->blockcount = 0; // may not exist
-
-	_this->monitor->filename = XXDP_MONITOR_FILENAME;
 
 	_this->mfd_blocklist->count = 0;
 	_this->interleave = _this->radi->interleave;
@@ -300,7 +301,7 @@ void xxdp_filesystem_init(xxdp_filesystem_t *_this) {
 // read MFD, produce MFD, Bitmap and UFD
 static void parse_mfd(xxdp_filesystem_t *_this) {
 	int n;
-	blocknr_t blknr, mfdblknr;
+	xxdp_blocknr_t blknr, mfdblknr;
 
 	xxdp_blocklist_get(_this, _this->mfd_blocklist, _this->radi->mfd1);
 	if (_this->mfd_blocklist->count == 2) {
@@ -366,9 +367,9 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 
 		// total num of blocks
 		n = _this->blockcount = xxdp_image_get_word(_this, mfdblknr, 7);
-		if (n != _this->radi->device_blocks_num)
+		if (n != _this->blockcount)
 			fprintf(ferr, "Device blockcount is %u in RADI, but %d in MFD1/2\n",
-					_this->radi->device_blocks_num, n);
+					_this->blockcount, n);
 
 		n = _this->preallocated_blockcount = xxdp_image_get_word(_this, mfdblknr, 8);
 		if (n != _this->radi->prealloc_blocks_num)
@@ -396,21 +397,21 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 // bitmap blocks known, produce "used[]" flag array
 static void parse_bitmap(xxdp_filesystem_t *_this) {
 	int i, j, k;
-	blocknr_t blknr; // enumerates the block flags
+	xxdp_blocknr_t blknr; // enumerates the block flags
 	// assume consecutive bitmap blocks encode consecutive block numbers
 	// what about map number?
 	blknr = 0;
 	for (i = 0; i < _this->bitmap->blocklist.count; i++) {
 		int map_wordcount;
-		blocknr_t map_blknr = _this->bitmap->blocklist.blocknr[i];
-		blocknr_t map_start_blknr; // block of 1st map block
+		xxdp_blocknr_t map_blknr = _this->bitmap->blocklist.blocknr[i];
+		xxdp_blocknr_t map_start_blknr; // block of 1st map block
 		// mapnr = xxdp_image_get_word(_this, blknr, 2);
 		map_wordcount = xxdp_image_get_word(_this, map_blknr, 2);
 		assert(map_wordcount == XXDP_BITMAP_WORDS_PER_MAP);
 		// verify link to start
 		map_start_blknr = xxdp_image_get_word(_this, map_blknr, 3);
 		assert(map_start_blknr == _this->bitmap->blocklist.blocknr[0]);
-		// hexdump(ferr, IMAGE_BLOCK(_this, map_blknr), 512, "Block %u = bitmap %u", map_blknr, i);
+		// hexdump(ferr, IMAGE_BLOCKNR2PTR(_this, map_blknr), 512, "Block %u = bitmap %u", map_blknr, i);
 		for (j = 0; j < map_wordcount; j++) {
 			uint16_t map_flags = xxdp_image_get_word(_this, map_blknr, j + 4);
 			// 16 flags per word. LSB = lowest blocknr
@@ -429,24 +430,24 @@ static void parse_bitmap(xxdp_filesystem_t *_this) {
 }
 
 // read block[start] ... block[start+blockcount-1] into data[]
-static void parse_multiblock(xxdp_filesystem_t *_this, xxdp_multiblock_t *multiblock,
-		blocknr_t start, blocknr_t blockcount) {
+static void parse_stream(xxdp_filesystem_t *_this, xxdp_multiblock_t *multiblock,
+		xxdp_blocknr_t start, xxdp_blocknr_t blockcount) {
 	multiblock->blockcount = blockcount;
 	multiblock->blocknr = start;
 	multiblock->data_size = XXDP_BLOCKSIZE * blockcount;
 	multiblock->data = malloc(multiblock->data_size);
-	memcpy(multiblock->data, IMAGE_BLOCK(_this, start), multiblock->data_size);
+	memcpy(multiblock->data, IMAGE_BLOCKNR2PTR(_this, start), multiblock->data_size);
 }
 
 // UFD blocks known, produce filelist
-static void parse_ufd(xxdp_filesystem_t *_this) {
+static int parse_ufd(xxdp_filesystem_t *_this) {
 	int i, j;
-	blocknr_t blknr; // enumerates the directory blocks
+	xxdp_blocknr_t blknr; // enumerates the directory blocks
 	uint32_t file_entry_start_wordnr;
 	uint16_t w;
 	for (i = 0; i < _this->ufd_blocklist->count; i++) {
 		blknr = _this->ufd_blocklist->blocknr[i];
-		// hexdump(ferr, IMAGE_BLOCK(_this, blknr), 512, "Block %u = UFD block %u", blknr, i);
+		// hexdump(ferr, IMAGE_BLOCKNR2PTR(_this, blknr), 512, "Block %u = UFD block %u", blknr, i);
 		// 28 dir entries per block
 		for (j = 0; j < XXDP_UFD_ENTRIES_PER_BLOCK; j++) {
 			xxdp_file_t *f;
@@ -460,10 +461,11 @@ static void parse_ufd(xxdp_filesystem_t *_this) {
 			f->data = NULL; //
 			f->filnam[0] = 0;
 			f->changed = 0;
+			// filnam: 6 chars
 			strcat(f->filnam, rad50_decode(w));
 			w = xxdp_image_get_word(_this, blknr, file_entry_start_wordnr + 1);
 			strcat(f->filnam, rad50_decode(w));
-			// extension: 13 chars
+			// extension: 3 chars
 			w = xxdp_image_get_word(_this, blknr, file_entry_start_wordnr + 2);
 			strcpy(f->ext, rad50_decode(w));
 
@@ -484,11 +486,10 @@ static void parse_ufd(xxdp_filesystem_t *_this) {
 			// check: lastblock?
 			w = xxdp_image_get_word(_this, blknr, file_entry_start_wordnr + 7);
 
-			if (_this->file_count >= XXDP_MAX_FILES_PER_IMAGE) {
-				fprintf(ferr, "XXDP UFD read: more than %d files!\n",
-				XXDP_MAX_FILES_PER_IMAGE);
-				return;
-			}
+			if (_this->file_count >= XXDP_MAX_FILES_PER_IMAGE)
+				return error_set(ERROR_FILESYSTEM_OVERFLOW,
+						"XXDP UFD read: more than %d files!",
+						XXDP_MAX_FILES_PER_IMAGE);
 			_this->file[_this->file_count++] = f; //save
 		}
 	}
@@ -508,7 +509,7 @@ static void parse_file_data(xxdp_filesystem_t *_this, xxdp_file_t *f) {
 	for (i = 0; i < f->blocklist.count; i++) {
 		// cat data from all blocks
 		int blknr = f->blocklist.blocknr[i];
-		src = IMAGE_BLOCK(_this, blknr) + 2; // skip link
+		src = IMAGE_BLOCKNR2PTR(_this, blknr) + 2; // skip link
 		memcpy(dst, src, block_datasize);
 		dst += block_datasize;
 		assert(dst <= f->data + f->data_size);
@@ -523,9 +524,9 @@ int xxdp_filesystem_parse(xxdp_filesystem_t *_this) {
 	xxdp_filesystem_init(_this);
 
 	// read bootblock 0. may consists of 00's
-	parse_multiblock(_this, _this->bootblock, _this->bootblock->blocknr, 1);
+	parse_stream(_this, _this->bootblock, _this->bootblock->blocknr, 1);
 	// read monitor: from defined start until end of preallocated area, about 32
-	parse_multiblock(_this, _this->monitor, _this->monitor->blocknr,
+	parse_stream(_this, _this->monitor, _this->monitor->blocknr,
 			_this->preallocated_blockcount - _this->monitor->blocknr);
 
 	parse_mfd(_this);
@@ -538,94 +539,55 @@ int xxdp_filesystem_parse(xxdp_filesystem_t *_this) {
 
 	xxdp_filesystem_mark_files_as_changed(_this);
 
-	return 0;
+	return ERROR_OK;
 }
 
 /**************************************************************
- * FileAPI
- * add files to logical data structure
+ * _layout()
+ * arrange objects on volume
  **************************************************************/
 
-// special:
-// -1: bootblock
-// -2: monitor
-// else regular file
-// fname: filnam.ext
-int xxdp_filesystem_add_file(xxdp_filesystem_t *_this, int special, char *hostfname,
-		time_t hostfdate, uint8_t *data, uint32_t data_size) {
-	if (special == -1) {
-		if (data_size != XXDP_BLOCKSIZE) {
-			fprintf(ferr, "Boot block not %d bytes\n", XXDP_BLOCKSIZE);
-			return -1;
-		}
-		_this->bootblock->data_size = data_size;
-		_this->bootblock->data = realloc(_this->bootblock->data, data_size);
-		memcpy(_this->bootblock->data, data, data_size);
-	} else if (special == -2) {
-		// assume max len of monitor
-		int n = XXDP_BLOCKSIZE * (_this->preallocated_blockcount - _this->monitor->blocknr + 1);
-		if (data_size > n) {
-			fprintf(ferr, "Monitor too big: is %d bytes, only %d allowed\n", data_size, n);
-			return -1;
-		}
-		_this->monitor->data_size = data_size;
-		_this->monitor->data = realloc(_this->monitor->data, data_size);
-		memcpy(_this->monitor->data, data, data_size);
-	} else {
-		xxdp_file_t *f;
-		char filnam[40], ext[40];
-		char *s;
-		int i;
-		// regular file
-		if (_this->file_count + 1 >= XXDP_MAX_FILES_PER_IMAGE) {
-			fprintf(ferr, "Too many files, only %d allowed\n", XXDP_MAX_FILES_PER_IMAGE);
-			return -1;
-		}
+// quick test, if a new file of "data-size" would fit onto the volume
+static int xxdp_filesystem_layout_test(xxdp_filesystem_t *_this, int data_size) {
+	int ufd_blocks_needed;
+	int data_blocks_needed;
+	int available_blocks;
+	int i;
 
-		// make filename.extension to "FILN  .E  "
-		xxdp_filename_from_host(hostfname, filnam, ext);
-
-		// duplicate file name? Likely! because of trunc to six letters
-		for (i = 0; i < _this->file_count - 1; i++) {
-			xxdp_file_t *f1 = _this->file[i];
-			if (!strcasecmp(filnam, f1->filnam) && !strcasecmp(ext, f1->ext)) {
-				fprintf(ferr, "Duplicate filename %s.%s", filnam, ext);
-				return -1;
-			}
-		}
-		// now insert
-		f = malloc(sizeof(xxdp_file_t));
-		_this->file[_this->file_count++] = f;
-		f->data_size = data_size;
-		f->data = malloc(data_size);
-		memcpy(f->data, data, data_size);
-		strcpy(f->filnam, filnam);
-		strcpy(f->ext, ext);
-
-		f->date = *localtime(&hostfdate);
-		// only range 1970..1999 allowed
-		if (f->date.tm_year < 70)
-			f->date.tm_year = 70;
-		else if (f->date.tm_year > 99)
-			f->date.tm_year = 99;
+	// 1 UFD = 28 files, blocks are 510
+	ufd_blocks_needed = NEEDED_BLOCKS(XXDP_UFD_ENTRIES_PER_BLOCK, _this->file_count + 1);
+	// sum up existing files
+	data_blocks_needed = 0;
+	for (i = 0; i < _this->file_count; i++) {
+		xxdp_file_t *f = _this->file[i];
+		int n = NEEDED_BLOCKS(XXDP_BLOCKSIZE-2, f->data_size);
+// fprintf(stderr,"layout_test(): file %d %s.%s start from %d, needs %d blocks\n", i, f->filnam, f->ext,
+//				_this->preallocated_blockcount+ data_blocks_needed, n);
+		data_blocks_needed += n;
 	}
-}
+	// space for the new file
+	data_blocks_needed += NEEDED_BLOCKS(XXDP_BLOCKSIZE-2, data_size);
 
-/**************************************************************
- * render
- * create an image from logical datas structure
- **************************************************************/
-#define NEEDEDBLOCKS(blocksize,data_size) ( ((data_size)+(blocksize)-1) / (blocksize) )
+	// we have the space after the preallocated area.
+	// It holds all file data and excess UFD blocks
+	// the first "ufd_blocks_num (from RADI) fit in preallocated space
+	available_blocks = _this->blockcount - _this->preallocated_blockcount;
+	if (ufd_blocks_needed > _this->radi->ufd_blocks_num)
+		data_blocks_needed += ufd_blocks_needed - _this->radi->ufd_blocks_num;
+	if (data_blocks_needed > available_blocks)
+		return ERROR_FILESYSTEM_OVERFLOW;
+	return 0; // fit
+}
 
 // calculate blocklists for monitor, bitmap,mfd, ufd and files
 // total blockcount may be enlarged
-int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
+static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	int i, j, n;
 	int overflow;
-	blocknr_t blknr;
+	xxdp_blocknr_t blknr;
 
-	_this->blockcount = _this->radi->device_blocks_num;
-	// may have been changed by previous run
+	// blockcount may have been enlarged by previous run
+	_this->blockcount = _this->radi->blocks_num;
 
 	// mark preallocated blocks in bitmap
 	// this covers boot, monitor, bitmap, mfd and default sized ufd
@@ -643,7 +605,7 @@ int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 
 	// MONITOR
 	if (_this->monitor->data_size) {
-		n = NEEDEDBLOCKS(XXDP_BLOCKSIZE, _this->monitor->data_size);
+		n = NEEDED_BLOCKS(XXDP_BLOCKSIZE, _this->monitor->data_size);
 		blknr = _this->radi->monitor_block; // set start
 		_this->monitor->blocknr = blknr;
 		_this->monitor->blockcount = n;
@@ -676,7 +638,7 @@ int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	}
 	// UFD
 	// starts in preallocated area, may extend into freespace
-	n = NEEDEDBLOCKS(XXDP_UFD_ENTRIES_PER_BLOCK, _this->file_count);
+	n = NEEDED_BLOCKS(XXDP_UFD_ENTRIES_PER_BLOCK, _this->file_count);
 	if (n < _this->radi->ufd_blocks_num)
 		n = _this->radi->ufd_blocks_num; // RADI defines minimum
 	_this->ufd_blocklist->count = n;
@@ -706,15 +668,16 @@ int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	for (i = 0; !overflow && i < _this->file_count; i++) {
 		xxdp_file_t *f = _this->file[i];
 		// amount of 510 byte blocks
-		n = NEEDEDBLOCKS(XXDP_BLOCKSIZE-2, f->data_size);
+		n = NEEDED_BLOCKS(XXDP_BLOCKSIZE-2, f->data_size);
+// fprintf(stderr,"layout(): file %d %s.%s start from %d, needs %d blocks\n", i, f->filnam, f->ext, blknr, n);
 		for (j = 0; !overflow && j < n; j++) {
 			if (j >= sizeof(f->blocklist.blocknr)) {
 				fprintf(ferr, "File %s.%s too large, uses more than %d blocks", f->filnam,
 						f->ext, (int) sizeof(f->blocklist.blocknr));
 				overflow = 1;
-			} else if ((int) blknr + 1 >= XXDP_MAX_BLOCKCOUNT) {
+			} else if ((int) blknr >= _this->blockcount) {
 				fprintf(ferr, "File system overflow, can hold max %d blocks.",
-				XXDP_MAX_BLOCKCOUNT);
+						_this->blockcount);
 				overflow = 1;
 			} else {
 				_this->bitmap->used[blknr] = 1;
@@ -732,13 +695,16 @@ int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	if (blknr >= _this->blockcount)
 		_this->blockcount = blknr;
 
-	//
-
-	return 0; // OK
+	return ERROR_OK;
 }
 
+/**************************************************************
+ * render
+ * create an binary image from logical datas structure
+ **************************************************************/
+
 static void render_multiblock(xxdp_filesystem_t *_this, xxdp_multiblock_t *multiblock) {
-	uint8_t *dst = IMAGE_BLOCK(_this, multiblock->blocknr);
+	uint8_t *dst = IMAGE_BLOCKNR2PTR(_this, multiblock->blocknr);
 	// write into sequential blocks.
 	memcpy(dst, multiblock->data, multiblock->data_size);
 }
@@ -746,7 +712,7 @@ static void render_multiblock(xxdp_filesystem_t *_this, xxdp_multiblock_t *multi
 // write the bitmap words of all used[] blocks
 // blocklist already calculated
 static void render_bitmap(xxdp_filesystem_t *_this) {
-	blocknr_t blknr;
+	xxdp_blocknr_t blknr;
 
 	// link blocks
 	xxdp_blocklist_set(_this, &(_this->bitmap->blocklist));
@@ -779,7 +745,7 @@ static void render_bitmap(xxdp_filesystem_t *_this) {
 // blocklist already calculated
 static void render_mfd(xxdp_filesystem_t *_this) {
 	int i, n;
-	blocknr_t blknr;
+	xxdp_blocknr_t blknr;
 	// link blocks
 	xxdp_blocklist_set(_this, _this->mfd_blocklist);
 	if (_this->mfd_variety == 1) {
@@ -837,7 +803,7 @@ static void render_ufd(xxdp_filesystem_t *_this) {
 	//
 	for (i = 0; i < _this->file_count; i++) {
 		char buff[80];
-		blocknr_t ufd_blknr = _this->radi->ufd_block_1 + (i / XXDP_UFD_ENTRIES_PER_BLOCK);
+		xxdp_blocknr_t ufd_blknr = _this->radi->ufd_block_1 + (i / XXDP_UFD_ENTRIES_PER_BLOCK);
 		// word nr of cur entry in cur block. skip link word.
 		int ufd_word_offset = 1 + (i % XXDP_UFD_ENTRIES_PER_BLOCK) * XXDP_UFD_ENTRY_WORDCOUNT;
 		xxdp_file_t *f = _this->file[i];
@@ -879,7 +845,7 @@ static void render_file_data(xxdp_filesystem_t *_this, xxdp_file_t *f) {
 		int blknr = f->blocklist.blocknr[i];
 		int block_datasize; // data amount in this block
 		assert(bytestocopy);
-		dst = IMAGE_BLOCK(_this, blknr) + 2; // write behind link word
+		dst = IMAGE_BLOCKNR2PTR(_this, blknr) + 2; // write behind link word
 
 		// data amount =n block without link word
 		block_datasize = XXDP_BLOCKSIZE - 2;
@@ -903,20 +869,18 @@ int xxdp_filesystem_render(xxdp_filesystem_t *_this) {
 
 	// calc blocklists and sizes
 	if (xxdp_filesystem_layout(_this))
-		return -1;
+		return error_code;
 
 	// if autosize allowed: enlarge image
 	if (*(_this->image_data_ptr) == NULL) // correct size if no buffer at all
 		*(_this->image_size_ptr) = 0;
 	if (needed_size > *(_this->image_size_ptr)) {
 		// more bytes needed than image provides. Expand?
-		if (!_this->expandable) {
-			fprintf(ferr, "Image only %d bytes large, filesystem needs %d *%d = %d.\n",
+		if (!_this->expandable)
+			return error_set(ERROR_FILESYSTEM_OVERFLOW,
+					"Image only %d bytes large, filesystem needs %d *%d = %d.",
 					*(_this->image_size_ptr), _this->blockcount, XXDP_BLOCKSIZE, needed_size);
-			return -1;
-		}
 		// enlarge, and update user pointers
-
 		*(_this->image_data_ptr) = realloc(*(_this->image_data_ptr), needed_size);
 		*(_this->image_size_ptr) = needed_size;
 	}
@@ -933,17 +897,124 @@ int xxdp_filesystem_render(xxdp_filesystem_t *_this) {
 	// read data for all user files
 	for (i = 0; i < _this->file_count; i++)
 		render_file_data(_this, _this->file[i]);
-	return 0;
+	return ERROR_OK;
 }
 
 /**************************************************************
- * Print structures
+ * FileAPI
+ * add / get files in logical data structure
  **************************************************************/
-char *xxdp_date_text(struct tm t) {
+
+// special:
+// -1: bootblock
+// -2: monitor
+// else regular file
+// fname: filnam.ext
+int xxdp_filesystem_file_add(xxdp_filesystem_t *_this, char *hostfname, time_t hostfdate,
+		uint8_t *data, uint32_t data_size) {
+	int special;
+	char buff1[80], buff2[80];
+	if (!strcasecmp(hostfname, XXDP_BOOTBLOCK_FILNAM "." XXDP_BOOTBLOCK_EXT))
+		special = -1;
+	else if (!strcasecmp(hostfname, XXDP_MONITOR_FILNAM "." XXDP_MONITOR_EXT))
+		special = -2;
+	else
+		special = 0;
+
+	if (special == -1) {
+		if (data_size != XXDP_BLOCKSIZE)
+			return error_set(ERROR_FILESYSTEM_FORMAT, "Boot block not %d bytes\n",
+			XXDP_BLOCKSIZE);
+		_this->bootblock->data_size = data_size;
+		_this->bootblock->data = realloc(_this->bootblock->data, data_size);
+		memcpy(_this->bootblock->data, data, data_size);
+	} else if (special == -2) {
+		// assume max len of monitor
+		int n = XXDP_BLOCKSIZE * (_this->preallocated_blockcount - _this->monitor->blocknr + 1);
+		if (data_size > n)
+			return error_set(ERROR_FILESYSTEM_OVERFLOW,
+					"Monitor too big: is %d bytes, only %d allowed", data_size, n);
+		_this->monitor->data_size = data_size;
+		_this->monitor->data = realloc(_this->monitor->data, data_size);
+		memcpy(_this->monitor->data, data, data_size);
+	} else {
+		xxdp_file_t *f;
+		char filnam[40], ext[40];
+		char *s;
+		int i;
+		// regular file
+		if (_this->file_count + 1 >= XXDP_MAX_FILES_PER_IMAGE)
+			return error_set(ERROR_FILESYSTEM_OVERFLOW, "Too many files, only %d allowed",
+			XXDP_MAX_FILES_PER_IMAGE);
+		if (xxdp_filesystem_layout_test(_this, data_size))
+			return error_set(ERROR_FILESYSTEM_OVERFLOW,
+					"Disk full, file \"%s\" with %d bytes too large", hostfname, data_size);
+
+		// make filename.extension to "FILN  .E  "
+		xxdp_filename_from_host(hostfname, filnam, ext);
+
+		// duplicate file name? Likely! because of trunc to six letters
+		for (i = 0; i < _this->file_count; i++) {
+			xxdp_file_t *f1 = _this->file[i];
+			if (!strcasecmp(filnam, f1->filnam) && !strcasecmp(ext, f1->ext))
+				return error_set(ERROR_FILESYSTEM_DUPLICATE, "Duplicate filename %s.%s", filnam,
+						ext);
+		}
+		// now insert
+		f = malloc(sizeof(xxdp_file_t));
+		_this->file[_this->file_count++] = f;
+		f->data_size = data_size;
+		f->data = malloc(data_size);
+		memcpy(f->data, data, data_size);
+		strcpy(f->filnam, filnam);
+		strcpy(f->ext, ext);
+
+		f->date = *localtime(&hostfdate);
+		// only range 1970..1999 allowed
+		if (f->date.tm_year < 70)
+			f->date.tm_year = 70;
+		else if (f->date.tm_year > 99)
+			f->date.tm_year = 99;
+	}
+	return ERROR_OK;
+}
+
+// access files, bootblock and monitor in an uniform way
+// bootblock or monitor are NULL, if empty
+xxdp_file_t *xxdp_filesystem_file_get(xxdp_filesystem_t *_this, int fileidx) {
+	xxdp_file_t *result = NULL;
+	static xxdp_file_t buff[2]; // buffers for monitor and bootblock
+	if (fileidx == -1 && !is_memset(_this->bootblock->data, 0, _this->bootblock->data_size)) {
+		result = &buff[0];
+		strcpy(result->filnam, XXDP_BOOTBLOCK_FILNAM);
+		strcpy(result->ext, XXDP_BOOTBLOCK_EXT);
+		result->data = _this->bootblock->data;
+		result->data_size = _this->bootblock->data_size;
+		memset(&result->date, 0, sizeof(result->date));
+	} else if (fileidx == -2
+			&& !is_memset(_this->monitor->data, 0, _this->monitor->data_size)) {
+		result = &buff[1];
+		strcpy(result->filnam, XXDP_MONITOR_FILNAM);
+		strcpy(result->ext, XXDP_MONITOR_EXT);
+		result->data = _this->monitor->data;
+		result->data_size = _this->monitor->data_size;
+		memset(&result->date, 0, sizeof(result->date));
+	} else if (fileidx >= 0 && fileidx < _this->file_count) {
+		result = _this->file[fileidx];
+	} else
+		result = NULL;
+	return result;
+}
+
+/**************************************************************
+ * Display structures
+ **************************************************************/
+
+static char *xxdp_date_text(struct tm t) {
 	char *mon[] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV",
 			"DEC" };
 	static char buff[80];
-	sprintf(buff, "%2d-%3s-%02d", t.tm_mday, mon[t.tm_mon], t.tm_year);
+	sprintf(buff, "%02d-%3s-%02d", t.tm_mday, mon[t.tm_mon], t.tm_year);
 	return buff;
 }
 
@@ -952,11 +1023,12 @@ char *xxdp_date_text(struct tm t) {
 //
 //     1  XXDPSM.SYS       1-MAR-89         29    000050   E.0
 //     2  XXDPXM.SYS       1-MAR-89         39    000105
-char *xxdp_dir_line(xxdp_filesystem_t *_this, int fileidx) {
+static char *xxdp_dir_line(xxdp_filesystem_t *_this, int fileidx) {
 	static char buff[80];
-	xxdp_file_t *f = _this->file[fileidx];
+	xxdp_file_t *f;
 	if (fileidx < 0)
 		return "ENTRY# FILNAM.EXT        DATE          LENGTH  START   VERSION";
+	f = _this->file[fileidx];
 	sprintf(buff, "%5d  %6s.%-3s%15s%11d    %06o", fileidx + 1, f->filnam, f->ext,
 			xxdp_date_text(f->date), f->blocklist.count, f->blocklist.blocknr[0]);
 	return buff;
@@ -975,8 +1047,8 @@ void xxdp_filesystem_print_dir(xxdp_filesystem_t *_this, FILE *stream) {
 	fprintf(stream, "FREE BLOCKS: %d\n", _this->blockcount - xxdp_bitmap_count(_this));
 }
 
-void xxdp_filesystem_print_blocks(xxdp_filesystem_t *_this, FILE *stream) {
-	blocknr_t blknr;
+void xxdp_filesystem_print_diag(xxdp_filesystem_t *_this, FILE *stream) {
+	xxdp_blocknr_t blknr;
 	int i, j, n;
 	char line[256];
 	char buff[256];
@@ -985,7 +1057,7 @@ void xxdp_filesystem_print_blocks(xxdp_filesystem_t *_this, FILE *stream) {
 	for (blknr = 0; blknr < _this->blockcount; blknr++) {
 		line[0] = 0;
 		if (blknr == 0) {
-			sprintf(buff, " BOOTBLOCK \"%s\"", _this->bootblock->filename);
+			sprintf(buff, " BOOTBLOCK \"%s.%s\"", XXDP_BOOTBLOCK_FILNAM, XXDP_BOOTBLOCK_EXT);
 			strcat(line, buff);
 		}
 
@@ -993,7 +1065,8 @@ void xxdp_filesystem_print_blocks(xxdp_filesystem_t *_this, FILE *stream) {
 		n = _this->monitor->blockcount;
 		i = blknr - _this->monitor->blocknr;
 		if (i >= 0 && i < n) {
-			sprintf(buff, " MONITOR \"%s\" - %d/%d", _this->monitor->filename, i, n);
+			sprintf(buff, " MONITOR \"%s.%s\" - %d/%d", XXDP_MONITOR_FILNAM, XXDP_MONITOR_EXT,
+					i, n);
 			strcat(line, buff);
 		}
 
@@ -1035,7 +1108,7 @@ void xxdp_filesystem_print_blocks(xxdp_filesystem_t *_this, FILE *stream) {
 			strcat(line, buff);
 		}
 		if (line[0]) {
-			int offset = (IMAGE_BLOCK(_this, blknr) - IMAGE_BLOCK(_this, 0));
+			int offset = (IMAGE_BLOCKNR2PTR(_this, blknr) - IMAGE_BLOCKNR2PTR(_this, 0));
 			fprintf(stream, "%5d @ 0x%06x = %#08o:  %s\n", blknr, offset, offset, line);
 		}
 	}
@@ -1070,7 +1143,7 @@ char *xxdp_filename_from_host(char *hostfname, char *filnam, char *ext) {
 	static char result[80];
 	char pathbuff[4096];
 	char _filnam[7], _ext[4];
-	char *s, *t, *dotpos;
+	char *s, *t;
 
 	strcpy(pathbuff, hostfname);
 
@@ -1085,28 +1158,17 @@ char *xxdp_filename_from_host(char *hostfname, char *filnam, char *ext) {
 		}
 
 	// search last "."
-	dotpos = NULL;
-	for (s = pathbuff; *s; s++)
-		if (*s == '.')
-			dotpos = s;
-
-	if (dotpos)
-		*dotpos = 0; // sep words
-
-	// extract 6 char filnam
-	s = pathbuff;
-	t = _filnam;
-	while (*s && (s - pathbuff) < 6)
+	s = extract_extension(pathbuff, /*truncate*/1);
+	t = _ext; // extract 3 char ext
+	while (s && *s && (t - _ext) < 3)
 		*t++ = *s++;
 	*t = 0;
 
-	// extract 3 char ext
-	t = _ext;
-	if (dotpos) {
-		s = dotpos + 1;
-		while (s && *s && (s - dotpos - 1) < 3)
-			*t++ = *s++;
-	}
+	// extract 6 char filnam
+	s = pathbuff; // only filename
+	t = _filnam;
+	while (*s && (t - _filnam) < 6)
+		*t++ = *s++;
 	*t = 0;
 
 	// return space-padded components

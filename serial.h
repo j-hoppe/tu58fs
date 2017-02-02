@@ -15,7 +15,8 @@
 
 
 #ifndef _SERIAL_C_
-extern uint64_t serial_lastrxtime_ms ;
+extern uint64_t serial_rx_lasttime_ms ;
+extern uint64_t serial_tx_lasttime_ms ;
 #endif
 
 

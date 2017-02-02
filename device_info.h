@@ -1,4 +1,4 @@
-/* utils.h: miscellaneous helpers
+/* device_info.h - tables with data about DEC devices
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -33,40 +33,48 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  20-Jan-2017  JH  created
+ *  24-Jan-2017  JH  created
+ *
  */
+#ifndef _DEVICE_INFO_H_
+#define _DEVICE_INFO_H_
 
-#ifndef _UTILS_H_
-#define _UTILS_H_
+typedef enum {
+	devNONE = 0,
+	devTU58,
+	devTU58M4,
+	devTU58M32,
+	devRP0456,
+	devRK035,
+	devRL01,
+	devRL02,
+	devRK067,
+	devRP023,
+	devRM,
+	devRS,
+	devTU56,
+	devRX01,
+	devRX02,
+	devRF = 13
+} device_type_t;
 
-#include <stdio.h>
-#include <stdint.h>
-#include <time.h>
-
-
-// how many blocks are needed to hold "data_size" bytes?
-#define NEEDED_BLOCKS(blocksize,data_size) ( ((data_size)+(blocksize)-1) / (blocksize) )
-
-
-void delay_ms(int32_t ms);
-uint64_t now_ms(); // current timestamp in milli seconds
-
-int is_memset(void *ptr, uint8_t val, uint32_t size);
-char *strtrim(char *txt);
-char *strrpad(char *txt, int len, char c);
-int inputline(char **tokenlist, int tokenlist_size);
-
-char *rad50_decode(uint16_t w);
-uint16_t rad50_encode(char *s);
-struct tm dos11date_decode(uint16_t w);
-uint16_t dos11date_encode(struct tm t);
-
-char *extract_extension(char *filename, int truncate) ;
-
-
-void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...);
-
-void *search_tagged_array(void *base, int element_size, int search_val) ;
+typedef struct {
+	int	device_type; // device_type_t tag to search for. see search_tagged_array()
+	char *device_name;
+	char *mnemonic;
+	int block_count; // total number of usable blocks on device, without bad sector area
+} device_info_t;
 
 
-#endif /* UTILS_H_ */
+#ifndef _DEVICE_INFO_C_
+extern device_info_t device_info_table[] ;
+#endif
+
+
+char *device_type_to_name(device_type_t device_type);
+device_type_t device_type_from_name(char * name);
+char *device_type_namelist(void) ;
+
+
+
+#endif

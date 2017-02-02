@@ -43,7 +43,9 @@
 #include <time.h>
 
 #include "boolarray.h"
+#include "device_info.h"
 #include "utils.h"
+#include "xxdp_radi.h"
 
 /* Logical structure of XXDP filesystem.
 *  See
@@ -62,11 +64,13 @@
 #define XXDP_MAX_BLOCKS_PER_LIST       1024  //  own: max filesize: * 510
 
 // boot block and monitor blocks are pseudo files
-#define XXDP_BOOTBLOCK_FILENAME	"$BOOT.BLK" // valid XXDP file names
-#define XXDP_MONITOR_FILENAME	"$MONI.TOR"
+#define XXDP_BOOTBLOCK_FILNAM	"$BOOT" // valid XXDP file names
+#define XXDP_BOOTBLOCK_EXT	"BLK"
+#define XXDP_MONITOR_FILNAM	"$MONI"// valid XXDP file names
+#define XXDP_MONITOR_EXT	"TOR"
 
 
-typedef uint16_t blocknr_t ;
+typedef uint16_t xxdp_blocknr_t ;
 
 
 typedef struct {
@@ -76,37 +80,20 @@ typedef struct {
 	int	blocknr ;
 } diskaddr_t ;
 
-// Random Access Device Information
-typedef struct {
-	char *device;
-	char *mnemonic;
-	blocknr_t ufd_block_1; // 1st UFD block
-	blocknr_t ufd_blocks_num; // number of ufd blocks
-	blocknr_t bitmap_block_1; // 1st bit map block
-	blocknr_t bitmaps_num; // number of bitmaps
-	int mfd1;
-	int mfd2;
-	int device_blocks_num; // number of blocks on device
-	blocknr_t prealloc_blocks_num; // number of blocks to preallocate
-	int interleave;
-	blocknr_t boot_block;
-	blocknr_t monitor_block;
-} xxdp_radi_t;
 
 typedef struct {
 	unsigned count;
-	blocknr_t blocknr[XXDP_MAX_BLOCKS_PER_LIST]; // later dynamic?
+	xxdp_blocknr_t blocknr[XXDP_MAX_BLOCKS_PER_LIST]; // later dynamic?
 } xxdp_blocklist_t;
 
 // a range of block which is treaed as one byte stream
 // - for the bootloader on a xxdp image
 // - for the monitor
 typedef struct {
-	blocknr_t	blocknr ; // start
-	blocknr_t	blockcount ; // count of blocks
+	xxdp_blocknr_t	blocknr ; // start
+	xxdp_blocknr_t	blockcount ; // count of blocks
 	uint8_t *data;  // space for blockcount * BLOCKSIZE data
 	uint32_t data_size; // byte count in data[]
-	char *filename ; // pseudo filename
 } xxdp_multiblock_t;
 
 // boolean marker for block usage
@@ -121,7 +108,7 @@ typedef struct {
 	int contiguous; //  1: blocknumbers are numbered start, start+1, start+2, ...
 	char filnam[80];  // normally 6 chars, encoded in 2 words RADIX50. Special filenames longer
 	char ext[40]; // normally 3 chars, encoded 1 word
-	blocknr_t block_count ; // saved blockcount from UFD.
+	xxdp_blocknr_t block_count ; // saved blockcount from UFD.
 	// UFD should not differ from blocklist.count !
 	uint32_t data_size; // byte count in data[]
 	uint8_t *data; // dynamic array with 'size' entires
@@ -131,26 +118,27 @@ typedef struct {
 
 // all elements of a populated xxdp disk image
 typedef struct {
-	int expandable ; // boolean: blockcount may be increased in _add_file()
-
-	 // the device this filesystem resides on
-	 dec_device_t dec_device ;
-	 xxdp_radi_t *radi ;	// Random Access Device Information
-
-	 int blockcount ; // usable blocks in filesystem.
-	 blocknr_t	preallocated_blockcount ; // fix blocks at start
-	 int interleave;
- 	 int mfd_variety; // Master File Directory in format 1 or format 2?
-
- 	diskaddr_t bad_sector_file_sd ; // DEC std 144 bad sector file single density
- 	diskaddr_t bad_sector_file_dd ; // dto, double density
-
 	// link to image data and size
 	// pointer reference outside locations,
 	// which may be change if image-resize is necessary
 	 uint8_t **image_data_ptr; // ptr to uint8_t data[]
 	 uint32_t *image_size_ptr ; // ptr to size of data[]
 	 boolarray_t *image_changed_blocks ; // blocks marked as "changed". may be NULL
+
+	// the device this filesystem resides on
+	device_type_t dec_device ;
+	device_info_t  *device_info ;
+	xxdp_radi_t *radi ;    // Random Access Device Information
+
+	int expandable ; // boolean: blockcount may be increased in _add_file()
+
+	 int blockcount ; // usable blocks in filesystem.
+	 xxdp_blocknr_t	preallocated_blockcount ; // fix blocks at start
+	 int interleave;
+ 	 int mfd_variety; // Master File Directory in format 1 or format 2?
+
+ 	diskaddr_t bad_sector_file_sd ; // DEC std 144 bad sector file single density
+ 	diskaddr_t bad_sector_file_dd ; // dto, double density
 
 	xxdp_multiblock_t *bootblock;
 	xxdp_multiblock_t *monitor;
@@ -166,9 +154,8 @@ typedef struct {
 	xxdp_file_t *file[XXDP_MAX_FILES_PER_IMAGE];
 } xxdp_filesystem_t;
 
-#if !defined(__XXDP_C_) && !defined(_XXDP_RADI_C_)
+#if !defined(_XXDP_C_) && !defined(_XXDP_RADI_C_)
 extern char * xxdp_fileorder[] ;
-extern xxdp_radi_t xxdp_radi[];
 #endif
 
 
@@ -176,7 +163,7 @@ extern xxdp_radi_t xxdp_radi[];
 
 
 // before first use. Link with image data buffer
-xxdp_filesystem_t *xxdp_filesystem_create(dec_device_t dec_device, uint8_t **image_data_ptr, uint32_t *image_data_size_ptr,
+xxdp_filesystem_t *xxdp_filesystem_create(device_type_t dec_device, uint8_t **image_data_ptr, uint32_t *image_data_size_ptr,
 		boolarray_t *changedblocks,	int expandable) ;
 
 void xxdp_filesystem_destroy(xxdp_filesystem_t *_this) ;
@@ -186,18 +173,16 @@ void xxdp_filesystem_init(xxdp_filesystem_t *_this) ;
 // analyse an image
 int xxdp_filesystem_parse(xxdp_filesystem_t *_this);
 
-int xxdp_filesystem_add_file(xxdp_filesystem_t *_this, int special, char *hostfname, time_t hostfdate,
+int xxdp_filesystem_file_add(xxdp_filesystem_t *_this,char *hostfname, time_t hostfdate,
 		uint8_t *data, uint32_t data_size) ;
-
-
-int xxdp_filesystem_layout(xxdp_filesystem_t *_this) ;
 
 // write filesystem into image
 int xxdp_filesystem_render(xxdp_filesystem_t *_this);
 
+xxdp_file_t *xxdp_filesystem_file_get(xxdp_filesystem_t *_this, int fileidx) ;
 
 void xxdp_filesystem_print_dir(xxdp_filesystem_t *_this, FILE *stream) ;
-void xxdp_filesystem_print_blocks(xxdp_filesystem_t *_this, FILE *stream) ;
+void xxdp_filesystem_print_diag(xxdp_filesystem_t *_this, FILE *stream) ;
 
 char *xxdp_filename_to_host(char *filnam, char *ext) ;
 char *xxdp_filename_from_host(char *hostfname, char *filnam, char *ext) ;

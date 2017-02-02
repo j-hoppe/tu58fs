@@ -38,7 +38,7 @@
  *  To sync PDP image and host directory, the current state of both sides is
  *  periodically compared with a recent snapshot of the hostdir.
  *  On each side, a file can be
- *  - unchanged since last sample
+ *  - undchanged since last sample
  *  - deleted (now missing)
  *  - changed
  *  - created (not in old snapshot)
@@ -65,10 +65,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "error.h"
 #include "utils.h"
 #include "filesort.h"
 #include "main.h"
-#include "xxdp.h"
+#include "filesystem.h"
 #include "hostdir.h"  // own
 
 // give the opposite of PDP resp. host
@@ -77,33 +78,8 @@
 // 1: no actual file operations
 int dbg_simulate = 0;
 
-// access files, bootblock and monitor in an uniform way
-// bootbloc or monitor ar NULL, if empty
-static xxdp_file_t *pdp_file_get(xxdp_filesystem_t *_this, int fileidx) {
-	xxdp_file_t *result = NULL;
-	static xxdp_file_t buff[2]; // buffers for monitor and bootblock
-	if (fileidx == -1 && !is_memset(_this->bootblock->data, 0, _this->bootblock->data_size)) {
-		result = &buff[0];
-		strcpy(result->filnam, _this->bootblock->filename);
-		strcpy(result->ext, "");
-		result->data = _this->bootblock->data;
-		result->data_size = _this->bootblock->data_size;
-		memset(&result->date, 0, sizeof(result->date));
-	} else if (fileidx == -2 && !is_memset(_this->monitor->data, 0, _this->monitor->data_size)) {
-		result = &buff[1];
-		strcpy(result->filnam, _this->monitor->filename);
-		strcpy(result->ext, "");
-		result->data = _this->monitor->data;
-		result->data_size = _this->monitor->data_size;
-		memset(&result->date, 0, sizeof(result->date));
-	} else if (fileidx >= 0 && fileidx < _this->file_count) {
-		result = _this->file[fileidx];
-	} else
-		result = NULL;
-	return result;
-}
-
 // search a file by name,
+// each PDP strem is an own file here
 // if not found, create, add and set to "create"
 // ONLY way to create files!
 // filename
@@ -113,7 +89,7 @@ hostdir_file_t *snapshot_locate_file(hostdir_snapshot_t *_this, char *filnam_ext
 	hostdir_file_t *result = NULL;
 	assert(strlen(filnam_ext) < HOSTDIR_MAX_FILENAMELEN);
 	for (i = 0; !result && i < _this->file_count; i++) {
-		if (!strcasecmp(_this->file[i].filnam_ext, filnam_ext))
+		if (!strcasecmp(_this->file[i].pdp_filnam_ext_stream, filnam_ext))
 			result = &_this->file[i]; // found
 	}
 	if (result && result->state[OTHER_SIDE(side)] == fs_created) {
@@ -128,7 +104,7 @@ hostdir_file_t *snapshot_locate_file(hostdir_snapshot_t *_this, char *filnam_ext
 		assert(_this->file_count < HOSTDIR_MAX_FILES);
 		result = &_this->file[_this->file_count++];
 		memset(result, 0, sizeof(hostdir_file_t));
-		strcpy(result->filnam_ext, filnam_ext);
+		strcpy(result->pdp_filnam_ext_stream, filnam_ext);
 		result->state[side] = fs_created;
 		result->state[OTHER_SIDE(side)] = fs_missing;
 	}
@@ -153,7 +129,7 @@ static void snapshot_print(hostdir_snapshot_t *_this, FILE *stream, int all) {
 		char *msg;
 		f = &_this->file[i];
 		if (all || f->state[side_pdp] != fs_unchanged || f->state[side_host] != fs_unchanged) {
-			fprintf(stream, "%3d: %10s %s, %s\n", i, f->filnam_ext,
+			info("%3d: %10s %s, %s.", i, f->pdp_filnam_ext_stream,
 					state_text(side_pdp, f->state[side_pdp]),
 					state_text(side_host, f->state[side_host]));
 		}
@@ -184,7 +160,7 @@ static int snapshot_scan_hostdir(hostdir_t *_this) {
 			// file create on both sides handled
 			char *filname_ext;
 			// convert to PDP convetions. Then perhaps not unique!
-			filname_ext = xxdp_filename_from_host(dp->d_name, NULL, NULL);
+			filname_ext = filesystem_filename_from_host(_this->pdp_fs, dp->d_name, NULL, NULL);
 
 			f = snapshot_locate_file(&_this->snapshot, filname_ext, side_host);
 			strcpy(f->hostfilename, dp->d_name);
@@ -201,12 +177,12 @@ static int snapshot_scan_hostdir(hostdir_t *_this) {
 	}
 	closedir(dfd);
 
-	return 0;
+	return ERROR_OK;
 }
 
 // register all files in the PDP file system
 static int snapshot_scan_pdpimage(hostdir_t *_this) {
-	int i;
+	int i, j;
 	hostdir_file_t *f;
 
 	// see above
@@ -214,31 +190,34 @@ static int snapshot_scan_pdpimage(hostdir_t *_this) {
 		_this->snapshot.file[i].state[side_pdp] = fs_missing;
 
 	// not expandle, we're only creating
-	// xxdp_filesystem_create(_this->fs, _this->dec_device, &_this->image_data, &_this->image_data_size,/*expandable*/0) ;
+	// filesystem_create(_this->fs, _this->dec_device, &_this->image_data, &_this->image_data_size,/*expandable*/0) ;
 
-	xxdp_filesystem_init(_this->pdp_fs);
+	filesystem_init(_this->pdp_fs);
 
 	// analyse an image
-	if (xxdp_filesystem_parse(_this->pdp_fs)) {
-		fprintf(ferr, "xxdp_filesystem_parse failed\n");
-		return -1;
-	}
+	if (filesystem_parse(_this->pdp_fs))
+		return error_set(error_code, "Scanning PDP image");
 	// if PDP file system was created with block change map, now changed files are marked
-	for (i = -2; i < _this->pdp_fs->file_count; i++) {
-		xxdp_file_t *fpdp = pdp_file_get(_this->pdp_fs, i); // include bootblock & monitor
-		if (fpdp) {
-			char *fname = xxdp_filename_to_host(fpdp->filnam, fpdp->ext);
-			f = snapshot_locate_file(&_this->snapshot, fname, side_pdp);
-			f->pdp_fileidx = i;
-			if (f->state[side_pdp] != fs_created) {
-				if (fpdp->changed)
-					f->state[side_pdp] = fs_changed;
-				else
-					f->state[side_pdp] = fs_unchanged;
+	for (i = -FILESYSTEM_MAX_SPECIALFILE_COUNT; i < *_this->pdp_fs->file_count; i++) {
+		file_t *fpdp = filesystem_file_get(_this->pdp_fs, i); // include bootblock & monitor
+		// for all streams
+		for (j = 0; j < FILESYSTEM_MAX_DATASTREAM_COUNT; j++)
+			if (fpdp && fpdp->stream[j].valid) {
+				char *fname = filesystem_filename_to_host(_this->pdp_fs, fpdp->filnam,
+						fpdp->ext, fpdp->stream[j].name);
+				f = snapshot_locate_file(&_this->snapshot, fname, side_pdp);
+				f->pdp_fileidx = i;
+				f->pdp_fixed = fpdp->fixed ;
+				f->pdp_streamidx = j;
+				if (f->state[side_pdp] != fs_created) {
+					if (fpdp->stream[j].changed)
+						f->state[side_pdp] = fs_changed;
+					else
+						f->state[side_pdp] = fs_unchanged;
+				}
 			}
-		}
 	}
-	return 0;
+	return ERROR_OK;
 }
 
 // clear all "change" states on both sides
@@ -248,6 +227,7 @@ static int snapshot_clear_states(hostdir_t *_this) {
 		hostdir_file_t *f = &_this->snapshot.file[i];
 		f->state[side_pdp] = f->state[side_host] = fs_unchanged;
 	}
+	return ERROR_OK;
 }
 
 // init the hostdir snapshot from PDP and hostdir
@@ -292,16 +272,13 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 		}
 	}
 	// again
-	if (stat(_this->path, &sb) || !S_ISDIR(sb.st_mode)) {
-		error("\"%s\" is no directory\n", _this->path);
-		return -1;
-	}
+	if (stat(_this->path, &sb) || !S_ISDIR(sb.st_mode))
+		return error_set(ERROR_HOSTDIR, "\"%s\" is no directory", _this->path);
 
 	// has it subdirs? iterate through
-	if ((dfd = opendir(_this->path)) == NULL) {
-		fprintf(ferr, "Can't open %s\n", _this->path);
-		return -1;
-	}
+	if ((dfd = opendir(_this->path)) == NULL)
+		return error_set(ERROR_HOSTDIR, "Can't open \"%s\"", _this->path);
+
 	ok = 1;
 	while (ok && (dp = readdir(dfd)) != NULL) {
 		sprintf(pathbuff, "%s/%s", _this->path, dp->d_name);
@@ -312,10 +289,8 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 			ok = 0;
 	}
 	closedir(dfd);
-	if (!ok) {
-		error("Dir \"%s\" contains subdirs or strange stuff\n", _this->path);
-		return -1;
-	}
+	if (!ok)
+		return error_set(ERROR_HOSTDIR, "Dir \"%s\" contains subdirs or strange stuff\n", _this->path);
 
 	// can I write to it?
 	sprintf(pathbuff, "%s/_tu58_file_test_", _this->path);
@@ -328,10 +303,8 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 		ok = 0;
 	if (remove(pathbuff))
 		ok = 0;
-	if (!ok) {
-		error("Can't work with dir \"%s\"\n", _this->path);
-		return -1;
-	}
+	if (!ok)
+		return error_set(ERROR_HOSTDIR, "Can't work with dir \"%s\"\n", _this->path);
 
 	// delete content
 	if (wipe) {
@@ -346,95 +319,79 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 		}
 	}
 
-	return 0; // OK
+	return ERROR_OK;
 }
 
 // write binary data into file
 int file_write(char *fpath, uint8_t *data, unsigned size) {
 	int fd;
 	fd = open(fpath, O_CREAT | O_RDWR, 0666);
-	if (fd < 0) {
-		error("File write: cannot open '%s'", fpath);
-		return -1;
-	}
+	if (fd < 0)
+		return error_set(ERROR_HOSTFILE, "File write: cannot open \"%s\"", fpath);
 	write(fd, data, size);
 	close(fd);
-	return 0;
+	return ERROR_OK;
 }
 
-// write files from filled xxdp filesystem into hostdir
+// write file streams from filled filesystem into hostdir
 // fpath must be "prepared()"
 // pdp_fs must have been "parsed()"
 int hostdir_from_pdp_fs(hostdir_t *_this) {
 	char pathbuff[4096];
-	int i;
+	int fileidx;
 	struct utimbuf ut;
-
-	sprintf(pathbuff, "%s/%s", _this->path, _this->pdp_fs->bootblock->filename);
-	file_write(pathbuff, _this->pdp_fs->bootblock->data, _this->pdp_fs->bootblock->data_size);
-
-	sprintf(pathbuff, "%s/%s", _this->path, _this->pdp_fs->monitor->filename);
-	file_write(pathbuff, _this->pdp_fs->monitor->data, _this->pdp_fs->monitor->data_size);
-
-	for (i = 0; i < _this->pdp_fs->file_count; i++) {
-		xxdp_file_t *f = _this->pdp_fs->file[i];
-		sprintf(pathbuff, "%s/", _this->path);
-		strcat(pathbuff, strtrim(f->filnam)); // remove spaces from filnam.ext
-		strcat(pathbuff, ".");
-		strcat(pathbuff, strtrim(f->ext)); // remove spaces from filnam.ext
-		file_write(pathbuff, f->data, f->data_size);
-
-		// set original file date
-		ut.modtime = mktime(&f->date);
-		ut.actime = mktime(&f->date);
-		utime(pathbuff, &ut);
+	// known filesystems have max 3 special files (RT11)
+	for (fileidx = -FILESYSTEM_MAX_SPECIALFILE_COUNT; fileidx < *_this->pdp_fs->file_count; fileidx++) {
+		int i;
+		file_t *f = filesystem_file_get(_this->pdp_fs, fileidx);
+		if (f)
+			for (i = 0; i < FILESYSTEM_MAX_DATASTREAM_COUNT; i++)
+				if (f->stream[i].valid) {
+					file_stream_t *stream = &f->stream[i];
+					sprintf(pathbuff, "%s/%s", _this->path,
+							filesystem_filename_to_host(_this->pdp_fs, f->filnam, f->ext,
+									stream->name));
+					file_write(pathbuff, stream->data, stream->data_size);
+					if (fileidx >= 0) {
+						// regular file, not bootblock or monitor: set original file date
+						ut.modtime = mktime(&f->date);
+						ut.actime = mktime(&f->date);
+						utime(pathbuff, &ut);
+					}
+				}
 	}
-	return 0;
+	return ERROR_OK;
 }
 
 // add a file to the PDP filesystem
-static int pdp_fs_file_add(xxdp_filesystem_t *fs, char *fpath, char *fname) {
+static int pdp_fs_file_add(filesystem_t *fs, char *fpath, char *fname) {
 	char pathbuff[4096];
 	struct stat sb;
 	uint8_t *data;
 	unsigned data_size, n;
-	int special;
 	FILE *f;
 
 	sprintf(pathbuff, "%s/%s", fpath, fname);
-	if (stat(pathbuff, &sb)) {
-		error("Can get statistics for %s\n", pathbuff);
-		return -1;
-	}
+	if (stat(pathbuff, &sb))
+		return error_set(ERROR_HOSTFILE, "Can get statistics for \"%s\"", pathbuff);
 
 	f = fopen(pathbuff, "r");
-	if (!f) {
-		error("Can not open %s\n", pathbuff);
-		return -1;
-	}
+	if (!f)
+		return error_set(ERROR_HOSTFILE, "Can not open \"%s\"\n", pathbuff);
 	// use stat size to allocate data buffer
 	data_size = sb.st_size;
 	data = malloc(data_size);
 	n = fread(data, 1, data_size, f);
 	fclose(f);
 
-	if (n != data_size) {
-		error("Read %d bytes instead of %d from %s\n", n, data_size, pathbuff);
-		return -1;
-	}
+	if (n != data_size)
+		return error_set(ERROR_HOSTFILE, "Read %d bytes instead of %d from \"%s\"\n", n, data_size, pathbuff);
 
-	if (!strcasecmp(fname, fs->bootblock->filename))
-		special = -1;
-	else if (!strcasecmp(fname, fs->monitor->filename))
-		special = -2;
-	else
-		special = 0;
-
-	// add to filessystem
-	xxdp_filesystem_add_file(fs, special, fname, sb.st_mtim.tv_sec, data, data_size);
+	// add to filesystem
+	filesystem_file_add(fs, fname, sb.st_mtim.tv_sec, sb.st_mode, data, data_size);
 
 	free(data);
-	return 0;
+	return ERROR_OK ;
 }
 
 // scan all files, add into filesystem in correct order
@@ -463,22 +420,22 @@ int hostdir_to_pdp_fs(hostdir_t *_this) {
 		}
 	}
 
-	// sort names[] according to xxdp order
-	filename_sort(names, filecount, xxdp_fileorder, -1);
+	// sort names[] according to filesystem order
+	filename_sort(names, filecount, filesystem_fileorder(_this->pdp_fs), -1);
 
 	// add all files
-	xxdp_filesystem_init(_this->pdp_fs);
+	filesystem_init(_this->pdp_fs);
 	for (i = 0; i < filecount; i++) {
 		if (pdp_fs_file_add(_this->pdp_fs, _this->path, names[i]))
-			return -1;
+			return error_set(error_code, "Host dir to PDP filesystem") ;
 	}
 
-	return 0;
+	return ERROR_OK;
 }
 
 // link to PDP image and directory
 // PDP filesystem must have been initilaiszed with devcie type, image data etc.
-hostdir_t *hostdir_create(char *path, xxdp_filesystem_t *pdp_fs) {
+hostdir_t *hostdir_create(char *path, filesystem_t *pdp_fs) {
 	hostdir_t *_this;
 	_this = malloc(sizeof(hostdir_t));
 	strcpy(_this->path, path);
@@ -494,16 +451,16 @@ void hostdir_destroy(hostdir_t *_this) {
 
 // init image with content of existing hostdir files
 static int hostdir_image_reload(hostdir_t *_this) {
-	xxdp_filesystem_init(_this->pdp_fs);
+	filesystem_init(_this->pdp_fs);
 	hostdir_to_pdp_fs(_this); //  dir => filesystem
-	xxdp_filesystem_render(_this->pdp_fs); // filesystem => image
+	filesystem_render(_this->pdp_fs); // filesystem => image
 	if (opt_debug)
-		xxdp_filesystem_print_dir(_this->pdp_fs, ferr);
+		filesystem_print_dir(_this->pdp_fs, ferr);
 	if (opt_debug)
-		xxdp_filesystem_print_blocks(_this->pdp_fs, ferr);
+		filesystem_print_diag(_this->pdp_fs, ferr);
 
 	snapshot_init(_this);
-	return 0;
+	return ERROR_OK;
 }
 
 // load all files from hostdir into image
@@ -523,28 +480,30 @@ int hostdir_load(hostdir_t *_this, int autosizing, int allowcreate, int *created
 // convert image into files, save in hostdir
 // former content of hostdir is lost
 int hostdir_save(hostdir_t *_this) {
-	if (hostdir_prepare(_this, /*wipe*/1, 0, NULL)) {
-		error("hostdir_prepare failed");
-		return -1;
-	}
-	xxdp_filesystem_init(_this->pdp_fs);
-	xxdp_filesystem_parse(_this->pdp_fs); // image => filesystem
+	if (hostdir_prepare(_this, /*wipe*/1, 0, NULL))
+		return error_set(error_code, "Saving host dir") ;
+	filesystem_init(_this->pdp_fs);
+	filesystem_parse(_this->pdp_fs); // image => filesystem
 	hostdir_from_pdp_fs(_this); // filesystem => dir
-	if (opt_verbose)
-		xxdp_filesystem_print_dir(_this->pdp_fs, ferr);
 	if (opt_debug)
-		xxdp_filesystem_print_blocks(_this->pdp_fs, ferr);
-	return 0;
+		filesystem_print_dir(_this->pdp_fs, ferr);
+	if (opt_debug)
+		filesystem_print_diag(_this->pdp_fs, ferr);
+	return ERROR_OK;
 }
 
-// copy a file from pdp to hostdir.
+// copy a file from pdp stream to hostdir.
+// may copy several files, if PDP file has several streams
 static void hostdir_file_copy_from_pdp(hostdir_t *_this, hostdir_file_t *f) {
 	char pathbuff[4096];
-	xxdp_file_t *fpdp;
-	sprintf(pathbuff, "%s/%s", _this->path, f->filnam_ext);
-	fpdp = pdp_file_get(_this->pdp_fs, f->pdp_fileidx); // also boot and monitor
+	file_t *fpdp;
+	file_stream_t *stream;
+	sprintf(pathbuff, "%s/%s", _this->path, f->pdp_filnam_ext_stream);
+
+	fpdp = filesystem_file_get(_this->pdp_fs, f->pdp_fileidx); // also boot and monitor
+	stream = &fpdp->stream[f->pdp_streamidx];
 	if (!dbg_simulate)
-		file_write(pathbuff, fpdp->data, fpdp->data_size);
+		file_write(pathbuff, stream->data, stream->data_size);
 	if (opt_verbose)
 		info("Copied file \"%s\" from PDP to hostdir", pathbuff);
 }
@@ -586,8 +545,16 @@ int hostdir_sync(hostdir_t *_this) {
 		// 16 cases. The cases when one side is unchanged are easy
 		if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_unchanged) {
 			// do nothing
-		} else if (f->state[side_pdp] == fs_unchanged && f->state[side_host] != fs_unchanged) {
+		} else if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_missing) {
+			if (f->pdp_fixed)
+				hostdir_file_copy_from_pdp(_this, f); // restore
+			else
+				update_pdp = 1; // update PDP from hostdir
+		} else if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_changed) {
 			update_pdp = 1; // update PDP from hostdir
+		} else if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_created) {
+			update_pdp = 1; // update PDP from hostdir
+
 		} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_unchanged) {
 			hostdir_file_delete(_this, f);
 			update_snapshot = 1;
@@ -607,7 +574,7 @@ int hostdir_sync(hostdir_t *_this) {
 			hostdir_file_copy_from_pdp(_this, f);
 			update_snapshot = 1;
 		} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_missing) {
-			if (_this->pdp_priority)
+			if (f->pdp_fixed || _this->pdp_priority)
 				hostdir_file_copy_from_pdp(_this, f);
 			else
 				update_pdp = 1;
@@ -648,16 +615,16 @@ int hostdir_sync(hostdir_t *_this) {
 	if (update_pdp) {
 		// files in the host dir have changed:
 		// reload the tu58 image
-		if (opt_verbose)
-			info("Updating image with \"%s\"", _this->path);
 		hostdir_image_reload(_this);
+		if (opt_verbose)
+			info("Updated PDP image with shared dir \"%s\"", _this->path);
 	}
 	if (update_pdp || update_snapshot) {
 		// if file was deleted
 		snapshot_init(_this);
 		if (opt_verbose)
-			info("Loading content of \"%s\"", _this->path);
+			info("Scanned content of shared dir \"%s\"", _this->path);
 	}
 
-	return 0;
+	return ERROR_OK;
 }

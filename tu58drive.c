@@ -1,43 +1,43 @@
 /* tu58device.c - server for TU58 protocol, ctrl over seriaql line, work on image
-  *
-  * Original (C) 1984 Dan Ts'o <Rockefeller Univ. Dept. of Neurobiology>
-  * Update   (C) 2005-2016 Donald N North <ak6dn_at_mindspring_dot_com>
-  * Update   (C) 2017 Joerg Hoppe <j_hoppe@t-online.de>, www.retrocmp.com
-  *
-  * All rights reserved.
-  *
-  * Redistribution and use in source and binary forms, with or without
-  * modification, are permitted provided that the following conditions
-  * are met:
-  *
-  * o Redistributions of source code must retain the above copyright
-  *   notice, this list of conditions and the following disclaimer.
-  *
-  * o Redistributions in binary form must reproduce the above copyright
-  *   notice, this list of conditions and the following disclaimer in the
-  *   documentation and/or other materials provided with the distribution.
-  *
-  * o Neither the name of the copyright holder nor the names of its
-  *   contributors may be used to endorse or promote products derived from
-  *   this software without specific prior written permission.
-  *
-  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-  * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
-  * TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-  *
-  * This is the TU58 emulation program written at Rockefeller Univ., Dept. of
-  * Neurobiology. We copyright (C) it and permit its use provided it is not
-  * sold to others. Originally written by Dan Ts'o circa 1984 or so.
-  *
-  */
+ *
+ * Original (C) 1984 Dan Ts'o <Rockefeller Univ. Dept. of Neurobiology>
+ * Update   (C) 2005-2016 Donald N North <ak6dn_at_mindspring_dot_com>
+ * Update   (C) 2017 Joerg Hoppe <j_hoppe@t-online.de>, www.retrocmp.com
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * o Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * o Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in the
+ *   documentation and/or other materials provided with the distribution.
+ *
+ * o Neither the name of the copyright holder nor the names of its
+ *   contributors may be used to endorse or promote products derived from
+ *   this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+ * TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * This is the TU58 emulation program written at Rockefeller Univ., Dept. of
+ * Neurobiology. We copyright (C) it and permit its use provided it is not
+ * sold to others. Originally written by Dan Ts'o circa 1984 or so.
+ *
+ */
 #define _TU58DRIVE_C_
 
 //
@@ -50,18 +50,17 @@
 #include <ctype.h>
 #include <pthread.h>
 
-#include "image.h"	// option flags
-#include "utils.h"	// option flags
+#include "error.h"
+#include "utils.h"
+#include "device_info.h"
+#include "image.h"
 #include "main.h"	// option flags
 #include "serial.h"
 #include "tu58.h"	// protocoll
 #include "tu58drive.h"	// own
 
-
 // hold one image per device
 image_t tu58_image[TU58_DEVICECOUNT];
-
-
 
 #ifdef MACOSX
 // clock_gettime() is not available under OSX
@@ -97,13 +96,12 @@ static struct {
 uint8_t mrsp = 0;			// set nonzero to indicate MRSP mode is active
 
 // communication beetween thread and control
-uint8_t tu58_doinit = 0;// set nonzero to indicate should send INITs continuously
+uint8_t tu58_doinit = 0;			// set nonzero to indicate should send INITs continuously
 uint8_t tu58_runonce = 0;	// set nonzero to indicate emulator has been run
 
 // Inter-thread communication: control off offline-state
 int volatile tu58_offline_request;  // 1: main thread wants offline mode
 int volatile tu58_offline; // TU58 is offline, all drives without cartridge
-
 
 // select image over unit number
 image_t *tu58image_get(int32_t unit) {
@@ -121,11 +119,12 @@ void tu58images_init(void) {
 
 	for (unit = 0; unit < TU58_DEVICECOUNT; unit++) {
 		img = &tu58_image[unit];
-		image_init(img) ;
+		image_init(img, devTU58);
 		img->unit = unit;
-		img->blocksize = TU58_BLOCKSIZE ;
-		img->min_blockcount = TU58_CARTRIDGE_BLOCKCOUNT ;
-		img->max_blockcount = 0x10000 ;
+// defined by image(devTU58)
+//		img->blocksize = TU58_BLOCKSIZE;
+//		img->min_blockcount = TU58_CARTRIDGE_BLOCKCOUNT;
+		img->max_blockcount = 0x10000;
 	}
 }
 
@@ -161,9 +160,7 @@ void tu58images_sync_all() {
 	}
 }
 
-
 //
-
 
 // reinitialize TU58 state
 //
@@ -186,14 +183,14 @@ static void reinit(void) {
 // read of boot is not packetized, is just raw data
 //
 static void bootio(void) {
-	image_t *img  ;
+	image_t *img;
 	int32_t unit;
 	int32_t count;
 	uint8_t buffer[TU_BOOT_LEN];
 
 	// check unit number for validity
 	unit = devrxget();
-	img = tu58image_get(unit) ;
+	img = tu58image_get(unit);
 	if (!img || !img->open) {
 		error("bootio bad unit %d", unit);
 		return;
@@ -299,6 +296,7 @@ static void putpacket(tu_packet *pkt) {
 	uint8_t *ptr = (uint8_t *) pkt; // start at flag byte
 	uint16_t chksum;
 
+
 	// send all packet bytes
 	while (--count >= 0) {
 		devtxput(*ptr++);
@@ -346,8 +344,7 @@ static int32_t getpacket(tu_packet *pkt) {
 
 	// message on error
 	if (expchk != rcvchk)
-		error("getpacket checksum error: exp=0x%04X rcv=0x%04X", expchk,
-				rcvchk);
+		error("getpacket checksum error: exp=0x%04X rcv=0x%04X", expchk, rcvchk);
 
 	// return checksum match indication
 	return (expchk != rcvchk);
@@ -356,10 +353,8 @@ static int32_t getpacket(tu_packet *pkt) {
 //
 // tu58 sends end packet to host
 //
-static void endpacket(uint8_t unit, uint8_t code, uint16_t count,
-		uint16_t status) {
-	static tu_cmdpkt ek =
-			{ TUF_CTRL, TU_CTRL_LEN, TUO_END, 0, 0, 0, 0, 0, 0, -1 };
+static void endpacket(uint8_t unit, uint8_t code, uint16_t count, uint16_t status) {
+	static tu_cmdpkt ek = { TUF_CTRL, TU_CTRL_LEN, TUO_END, 0, 0, 0, 0, 0, 0, -1 };
 
 	ek.unit = unit;
 	ek.modifier = code; // success/fail code
@@ -383,9 +378,9 @@ static inline int32_t blocksize(uint8_t modifier) {
 // host seek of tu58
 //
 static void tuseek(tu_cmdpkt *pk) {
-	image_t	*img ;
+	image_t *img;
 	// check unit number for validity
-	img = tu58image_get(pk->unit) ;
+	img = tu58image_get(pk->unit);
 	if (!img || !img->open) {
 		error("tuseek bad unit %d", pk->unit);
 		endpacket(pk->unit, TUE_BADU, 0, 0);
@@ -420,10 +415,10 @@ static void tuseek(tu_cmdpkt *pk) {
 static void turead(tu_cmdpkt *pk) {
 	int32_t count;
 	tu_datpkt dk;
-	image_t	*img ;
+	image_t *img;
 
 	// check unit number for validity
-	img = tu58image_get(pk->unit) ;
+	img = tu58image_get(pk->unit);
 	if (!img || !img->open) {
 		error("turead bad unit %d", pk->unit);
 		endpacket(pk->unit, TUE_BADU, 0, 0);
@@ -437,8 +432,7 @@ static void turead(tu_cmdpkt *pk) {
 	}
 
 	// seek to desired ending block offset
-	if (image_blockseek(img, blocksize(pk->modifier), pk->block,
-			pk->count - 1)) {
+	if (image_blockseek(img, blocksize(pk->modifier), pk->block, pk->count - 1)) {
 		error("turead unit %d bad block 0x%04X", pk->unit, pk->block);
 		endpacket(pk->unit, TUE_BADB, 0, 0);
 		return;
@@ -468,8 +462,8 @@ static void turead(tu_cmdpkt *pk) {
 			delay_ms(tudelay[opt_timing].read);
 		} else {
 			// whoops, something bad happened
-			error("turead unit %d data error block 0x%04X count 0x%04X",
-					pk->unit, pk->block, pk->count);
+			error("turead unit %d data error block 0x%04X count 0x%04X", pk->unit, pk->block,
+					pk->count);
 			endpacket(pk->unit, TUE_PARO, pk->count - count, 0);
 			return;
 		}
@@ -488,10 +482,10 @@ static void tuwrite(tu_cmdpkt *pk) {
 	int32_t count;
 	int32_t status;
 	tu_datpkt dk;
-	image_t	*img ;
+	image_t *img;
 
 	// check unit number for validity
-	img = tu58image_get(pk->unit) ;
+	img = tu58image_get(pk->unit);
 	if (!img || !img->open) {
 		error("tuwrite bad unit %d", pk->unit);
 		endpacket(pk->unit, TUE_BADU, 0, 0);
@@ -505,8 +499,7 @@ static void tuwrite(tu_cmdpkt *pk) {
 	}
 
 	// seek to desired ending block offset
-	if (image_blockseek(img, blocksize(pk->modifier), pk->block,
-			pk->count - 1)) {
+	if (image_blockseek(img, blocksize(pk->modifier), pk->block, pk->count - 1)) {
 		error("tuwrite unit %d bad block 0x%04X", pk->unit, pk->block);
 		endpacket(pk->unit, TUE_BADB, 0, 0);
 		return;
@@ -577,15 +570,13 @@ static void tuwrite(tu_cmdpkt *pk) {
 		if ((status = image_write(img, dk.data, dk.length)) != dk.length) {
 			if (status == -2) {
 				// whoops, unit is write protected
-				error(
-						"tuwrite unit %d is write protected block 0x%04X count 0x%04X",
-						pk->unit, pk->block, pk->count);
+				error("tuwrite unit %d is write protected block 0x%04X count 0x%04X", pk->unit,
+						pk->block, pk->count);
 				endpacket(pk->unit, TUE_WPRO, pk->count - count, 0);
 			} else {
 				// whoops, some other data write error (like past EOF)
-				error(
-						"tuwrite unit %d data write error block 0x%04X count 0x%04X",
-						pk->unit, pk->block, pk->count);
+				error("tuwrite unit %d data write error block 0x%04X count 0x%04X", pk->unit,
+						pk->block, pk->count);
 				endpacket(pk->unit, TUE_PARO, pk->count - count, 0);
 			}
 			return;
@@ -603,8 +594,8 @@ static void tuwrite(tu_cmdpkt *pk) {
 			info("tuwrite unit %d filling %d zeroes", pk->unit, count);
 		if (image_write(img, buffer, count) != count) {
 			// whoops, something bad happened
-			error("tuwrite unit %d data error block 0x%04X count 0x%04X",
-					pk->unit, pk->block, pk->count);
+			error("tuwrite unit %d data error block 0x%04X count 0x%04X", pk->unit, pk->block,
+					pk->count);
 			endpacket(pk->unit, TUE_PARO, pk->count, 0);
 			return;
 		}
@@ -710,13 +701,12 @@ static void command(int8_t flag) {
 			info("%-8s unit=%d", name, pk.unit);
 			break;
 		case 2:
-			info("%-8s unit=%d sw=0x%02X mod=0x%02X blk=0x%04X", name, pk.unit,
-					pk.switches, pk.modifier, pk.block);
+			info("%-8s unit=%d sw=0x%02X mod=0x%02X blk=0x%04X", name, pk.unit, pk.switches,
+					pk.modifier, pk.block);
 			break;
 		case 3:
-			info("%-8s unit=%d sw=0x%02X mod=0x%02X blk=0x%04X cnt=0x%04X",
-					name, pk.unit, pk.switches, pk.modifier, pk.block,
-					pk.count);
+			info("%-8s unit=%d sw=0x%02X mod=0x%02X blk=0x%04X cnt=0x%04X", name, pk.unit,
+					pk.switches, pk.modifier, pk.block, pk.count);
 			break;
 		}
 
@@ -831,8 +821,8 @@ void* tu58_server(void* none) {
 		if (tu58_offline_request && !tu58_offline) {
 			// if requested, go offline after inactivity timeout
 
-			if (serial_lastrxtime_ms + opt_offlinetimeout_sec * 1000
-					< now_ms()) {
+			if (serial_rx_lasttime_ms + opt_offlinetimeout_sec * 1000 < now_ms()
+	&& serial_tx_lasttime_ms + opt_offlinetimeout_sec * 1000 < now_ms()	) {
 				tu58_offline = 1;
 				if (opt_verbose)
 					info("TU58 now offline");
@@ -854,6 +844,7 @@ void* tu58_server(void* none) {
 						fprintf(ferr, ".");
 					devtxput(TUF_INIT);
 					devtxflush();
+					serial_tx_lasttime_ms = 0 ; // does not count as traffic
 					delay_ms(75);
 				}
 				delay_ms(25);
@@ -960,9 +951,10 @@ void* tu58_server(void* none) {
 //
 void* tu58_monitor(void* none) {
 	int32_t sts;
-	uint64_t	next_sync_time ;
+	uint64_t now ;
+	uint64_t next_sync_time;
 
-	next_sync_time = now_ms() + opt_synctimeout_sec * 1000 ;
+	next_sync_time = now_ms() + opt_synctimeout_sec * 1000;
 	for (;;) {
 
 		// check for any error
@@ -990,13 +982,14 @@ void* tu58_monitor(void* none) {
 			error("monitor(): unknown flag %d", sts);
 			break;
 		}
-
+		now = now_ms() ;
 		// image_*() routines have, mutex locking, so no change while saving possible
-		if (next_sync_time < now_ms()
-				&& serial_lastrxtime_ms + opt_synctimeout_sec * 1000 < now_ms()) {
+		if (next_sync_time < now
+				&& serial_rx_lasttime_ms + opt_synctimeout_sec * 1000 < now
+				&& serial_tx_lasttime_ms + opt_synctimeout_sec * 1000 < now) {
 			// next sync time passed, and RS232 inactive
 			tu58images_sync_all();
-			next_sync_time = now_ms() + opt_synctimeout_sec * 1000 ;
+			next_sync_time = now + opt_synctimeout_sec * 1000;
 		}
 
 		// bit of a delay, loop again

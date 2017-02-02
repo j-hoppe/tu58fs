@@ -40,6 +40,7 @@
 #ifndef _BOOLARRAY_H_
 #define _BOOLARRAY_H_
 
+#include <stdio.h>
 #include <stdint.h>
 
 typedef struct {
@@ -54,5 +55,9 @@ void boolarray_clear(boolarray_t *_this);
 void boolarray_bit_set(boolarray_t *_this, uint32_t i);
 void boolarray_bit_clear(boolarray_t *_this, uint32_t i);
 int boolarray_bit_get(boolarray_t *_this, uint32_t i);
+// unsecure & fast
+#define BOOLARRAY_BIT_GET(_this,i) ( !! ((_this)->flags[(i) / 32] & (1 << ((i) % 32))) )
+
+void boolarray_print_diag(boolarray_t *_this, FILE *stream, int bitcount, char *info) ;
 
 #endif /* _BOOLARRAY_H_ */

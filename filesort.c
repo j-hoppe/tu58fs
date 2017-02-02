@@ -64,6 +64,7 @@
 #include <sys/types.h>
 #include <regex.h>
 
+#include "error.h"	// ferr
 #include "utils.h"	// ferr
 #include "filesort.h"	// own
 

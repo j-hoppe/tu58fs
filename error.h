@@ -1,4 +1,4 @@
-/* utils.h: miscellaneous helpers
+/* error.h: global error handling
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -33,40 +33,38 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  20-Jan-2017  JH  created
+ *  29-Jan-2017  JH  created
  */
 
-#ifndef _UTILS_H_
-#define _UTILS_H_
+#ifndef _ERROR_H_
+#define _ERROR_H_
 
 #include <stdio.h>
-#include <stdint.h>
-#include <time.h>
+
+// possible errors
+#define ERROR_OK	0
+#define ERROR_FILESYSTEM_FORMAT	-1 // error in filesystem structure
+#define ERROR_FILESYSTEM_OVERFLOW -2 // too many files on PDP
+#define ERROR_FILESYSTEM_DUPLICATE -3 // duplicate file name
+#define ERROR_FILESYSTEM_INVALID -4 // invalid PDP filesystem selected
+#define	ERROR_HOSTDIR -5 // error with shared directory
+#define ERROR_HOSTFILE -6 // file error on hostfile system
+#define ERROR_ILLPARAMVAL -7 // illegaler function parameter
+#define ERROR_IMAGE_MODE	-8 // tape image in wrong operation mode
+#define ERROR_IMAGE_EOF -9 // file pointer moved outside tape image
 
 
-// how many blocks are needed to hold "data_size" bytes?
-#define NEEDED_BLOCKS(blocksize,data_size) ( ((data_size)+(blocksize)-1) / (blocksize) )
 
 
-void delay_ms(int32_t ms);
-uint64_t now_ms(); // current timestamp in milli seconds
+//#define	ERROR_MAX_TRACE_LEVEL	10
 
-int is_memset(void *ptr, uint8_t val, uint32_t size);
-char *strtrim(char *txt);
-char *strrpad(char *txt, int len, char c);
-int inputline(char **tokenlist, int tokenlist_size);
+#ifndef _ERROR_C_
+extern FILE *ferr; // variable error stream
+extern int error_code ;
+//extern char  error_message[ERROR_MAX_TRACE_LEVEL+1][1024] ;
+#endif
 
-char *rad50_decode(uint16_t w);
-uint16_t rad50_encode(char *s);
-struct tm dos11date_decode(uint16_t w);
-uint16_t dos11date_encode(struct tm t);
+void error_clear(void) ;
+int error_set(int code, char *fmt, ...) ;
 
-char *extract_extension(char *filename, int truncate) ;
-
-
-void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...);
-
-void *search_tagged_array(void *base, int element_size, int search_val) ;
-
-
-#endif /* UTILS_H_ */
+#endif

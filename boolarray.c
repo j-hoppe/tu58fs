@@ -37,6 +37,7 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include "boolarray.h"
@@ -77,3 +78,39 @@ int boolarray_bit_get(boolarray_t *_this, uint32_t i) {
 	uint32_t w = _this->flags[i / 32];
 	return !!(w & (1 << (i % 32)));
 }
+
+// dump state of irst "bitcount" bits
+void boolarray_print_diag(boolarray_t *_this, FILE *stream, int bitcount, char *info) {
+	int any = 0;
+	int start, end;
+	if (bitcount <= 0 || bitcount > _this->bitcount)
+		bitcount = _this->bitcount ;
+		fprintf(stream, "%s - Dump of boolarray@%p, bits 0..%d: ", info, _this, bitcount-1);
+	start = 0;
+	while (start < bitcount) {
+		// find next set bit
+		while (start < bitcount && !boolarray_bit_get(_this, start))
+			start++;
+		// find next clr bit
+		end = start;
+		while (end < bitcount && boolarray_bit_get(_this, end))
+			end++;
+		if (start < bitcount) {
+			if (!any)
+				fprintf(stream, "bits set =\n");
+			else
+				fprintf(stream, ",");
+			if (end - start > 1)
+				fprintf(stream, "%d-%d", start, end - 1);
+			else
+				fprintf(stream, "%d", start);
+			any = 1;
+		}
+		start = end;
+	}
+	if (!any)
+		fprintf(stderr, "no bits set.\n");
+	else
+		fprintf(stderr, ".\n");
+}
+

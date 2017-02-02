@@ -49,8 +49,6 @@
 #include <sys/time.h>
 #include "utils.h"	// own
 
-FILE *ferr = NULL; // variable error stream
-
 //
 // delay routine
 //
@@ -125,6 +123,17 @@ char *strtrim(char *txt) {
 	return buff;
 }
 
+// pad a string right upto "len" with char "c"
+char *strrpad(char *txt, int len, char c) {
+	static char buff[1024];
+	int i = strlen(txt);
+	memset(buff, c, len) ; // init buffer with base pattern
+	strncpy(buff, txt, strlen(txt)) ;
+	buff[len] = 0 ;
+	return buff ;
+}
+
+
 // encode char into a 0..39 value
 // " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789"
 // invalid = %
@@ -195,6 +204,28 @@ uint16_t rad50_encode(char *s) {
 		result += rad50_chr2val(toupper(s[2]));
 	return result;
 }
+
+
+// clips off the last exension in filename
+	// if "truncate": file is truncated, extension is returned
+char *extract_extension(char *filename, int truncate) {
+	char	*dotpos ;
+	char *s ;
+
+		// find the last "."
+	dotpos = NULL;
+	for (s = filename; *s; s++)
+		if (*s == '.')
+			dotpos = s;
+
+	if (dotpos) {
+		if (truncate)
+			*dotpos = 0; // clip off "." and extension
+		return dotpos+1 ;
+	} else
+		return NULL ;
+}
+
 
 int leapyear(int y) {
 	return ((y % 4 == 0) && (y % 100 != 0)) || (y % 400 == 0);
@@ -313,4 +344,25 @@ void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...) {
 	}    // dump rest of lines
 	if (strlen(line_hexb))
 		hexdump_put(stream, startaddr, line_hexb, line_hexw, line_ascii);
+}
+
+/*
+ * searches a tag vlaue in an array of records, whose first element is an "int" sized tag.
+ * end of array is marked with a 0 tag.
+ * returns pointer to the found record on success.
+ */
+void *search_tagged_array(void *base, int element_size, int search_val) {
+	uint8_t *ptr = base;
+	int found = 0;
+	int cur_tag;
+
+	cur_tag = *(int *) ptr;
+	while (cur_tag != search_val && cur_tag != 0) {
+		ptr += element_size;
+		cur_tag = *(int *) ptr;
+	}
+	if (cur_tag)
+		return ptr;
+	else
+		return NULL;
 }

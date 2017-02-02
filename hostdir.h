@@ -39,7 +39,7 @@
 #ifndef _HOSTDIR_H_
 #define _HOSTDIR_H_
 
-#include "xxdp.h"
+#include "filesystem.h"
 
 #define HOSTDIR_MAX_FILES	1000
 #define HOSTDIR_MAX_FILENAMELEN	40 // normally only 6.3 used
@@ -56,10 +56,11 @@ typedef enum {
 } hostdir_file_state_t;
 
 // an entry in the hostdir snapshot
+// is a PDP file stream
 typedef struct {
 	// identifying: the PDP filename
-	char filnam_ext[40]; // normally only 6.3 used
-	char hostfilename[256] ; // also needed: the host name
+	char pdp_filnam_ext_stream[40]; // normally only 6.3 used + streamname
+	char hostfilename[256] ; // also needed: the uncorrected host name
 
 	// changes on host / PDP side, idx by "side"
 	hostdir_file_state_t state[2];
@@ -68,6 +69,8 @@ typedef struct {
 	time_t host_mtime; // modification time
 
 	int pdp_fileidx; // index in pdp-filesystem
+	int pdp_streamidx; // is the i-th stream of that file
+	int	pdp_fixed ; // 1: is part of pdp filesystem, cann ot be deleted
 } hostdir_file_t;
 
 // state of host dir
@@ -80,7 +83,7 @@ typedef struct {
 	char path[4096];  // path to host dir
 
 	// PDP image
-	xxdp_filesystem_t *pdp_fs; // link to initialized PDP file system
+	filesystem_t *pdp_fs; // link to initialized PDP file system
 	// the fs is linked to the image data buffer
 
 	hostdir_snapshot_t snapshot;
@@ -89,7 +92,7 @@ typedef struct {
 	int pdp_priority ; // 1: file state in PDP image overrides hostdir changes
 } hostdir_t;
 
-hostdir_t *hostdir_create(char *path, xxdp_filesystem_t *pdp_fs) ;
+hostdir_t *hostdir_create(char *path, filesystem_t *pdp_fs) ;
 void hostdir_destroy(hostdir_t *_this);
 
 int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created);

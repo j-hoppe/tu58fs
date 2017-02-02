@@ -38,14 +38,12 @@
  */
 #define _XXDP_RADI_C_
 
-#include "utils.h"
-#include "xxdp.h"
+#include "device_info.h"
+#include "xxdp_radi.h"
 
-// index = dec_device_t
 xxdp_radi_t xxdp_radi[] = {
     {
-        .device = "TU58",
-        .mnemonic = "DD",
+    	.device_type = devTU58, // tag
         .ufd_block_1 = 3,
         .ufd_blocks_num = 4,
         .bitmap_block_1 = 7,
@@ -56,178 +54,169 @@ xxdp_radi_t xxdp_radi[] = {
 		 * But after decades of XXDPDIR and friends,
 		 * 512 seems to be the standard.
 		 */
-        .device_blocks_num = 512, // 511,
+        .blocks_num = 512, // 511,
         .prealloc_blocks_num = 40,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 8
     },
     {
-        .device = "RP04,5,6",
-        .mnemonic = "DB",
+    	.device_type = devRP0456 ,
         .ufd_block_1 = 3,
         .ufd_blocks_num = 170,
         .bitmap_block_1 = 173,
         .bitmaps_num = 50,
         .mfd1 = 1,
         .mfd2 = 2,
-        .device_blocks_num = 48000,
+        .blocks_num = 48000,
         .prealloc_blocks_num = 255,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 223
     },
     {
-        .device = "RK03,5",
-        .mnemonic = "DK",
+    	.device_type = devRK035 ,
         .ufd_block_1 = 3,
         .ufd_blocks_num = 16,
         .bitmap_block_1 = 4795, // ??
         .bitmaps_num = 5,
         .mfd1 = 1,
         .mfd2 = 4794,
-        .device_blocks_num = 4800,
+        .blocks_num = 4800,
         .prealloc_blocks_num = 69,
         .interleave = 5,
         .boot_block = 0,
         .monitor_block = 30
     },
     {
-        .device = "RL01",
-        .mnemonic = "DL",
+    	.device_type = devRL01 ,
         .ufd_block_1 = 24,
         .ufd_blocks_num = 146, // 24..169 fiche bad, don north
         .bitmap_block_1 = 2,
         .bitmaps_num = 22,
         .mfd1 = 1,
         .mfd2 = -1,
-        .device_blocks_num = 10200,
+        .blocks_num = 10200,
         .prealloc_blocks_num = 200,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 170
     },
     {
-        .device = "RL02",
-        .mnemonic = "DL",
+    	.device_type = devRL02 ,
         .ufd_block_1 = 24,
         .ufd_blocks_num = 146, // 24..169 fiche bad, don north
         .bitmap_block_1 = 2,
         .bitmaps_num = 22,
         .mfd1 = 1,
         .mfd2 = -1,
-        .device_blocks_num = 20460,
+        .blocks_num = 20460,
         .prealloc_blocks_num = 200,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 170
     },
     {
-        .device = "RK06,7",
-        .mnemonic = "DM",
+    	.device_type = devRK067 ,
         .ufd_block_1 = 31,
         .ufd_blocks_num = 96,
         .bitmap_block_1 = 2,
         .bitmaps_num = 29,
         .mfd1 = 1,
         .mfd2 = -1,
-        .device_blocks_num = 27104,
+        .blocks_num = 27104,
         .prealloc_blocks_num = 157,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 127
     },
     {
-        .device = "RP02,3",
-        .mnemonic = "DP",
+    	.device_type = devRP023 ,
         .ufd_block_1 = 3,
         .ufd_blocks_num = 170,
         .bitmap_block_1 = 173,
         .bitmaps_num = 2,
         .mfd1 = 1,
         .mfd2 = 2,
-        .device_blocks_num = -1, // unknown, bad fiche
+        .blocks_num = -1, // unknown, bad fiche
         .prealloc_blocks_num = 255,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 223
     },
     {
-        .device = "RM03",
-        .mnemonic = "DR",
+    	.device_type = devRM ,
         .ufd_block_1 = 52,
         .ufd_blocks_num = 170,
         .bitmap_block_1 = 2,
         .bitmaps_num = 50,
         .mfd1 = 1,
         .mfd2 = -1,
-        .device_blocks_num = 48000,
+        .blocks_num = 48000,
         .prealloc_blocks_num = 255,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 222
     },
     {
-        .device = "RS03,4",
-        .mnemonic = "DS",
+    	.device_type = devRS ,
         .ufd_block_1 = 3,
         .ufd_blocks_num = 4,
         .bitmap_block_1 = 7,
         .bitmaps_num = 2,
         .mfd1 = 1,
         .mfd2 = 2,
-        .device_blocks_num = 989 ,
+        .blocks_num = 989,
         .prealloc_blocks_num = 41,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 9
     },
     {
-        .device = "TU56",
-        .mnemonic = "DT",
+    	.device_type = devTU56 ,
         .ufd_block_1 = 102,
         .ufd_blocks_num = 2,
         .bitmap_block_1 = 104,
         .bitmaps_num = 1,
         .mfd1 = 100,
         .mfd2 = 101,
-        .device_blocks_num = 576,
+        .blocks_num = 576,
         .prealloc_blocks_num = 69,
         .interleave = 5,
         .boot_block = 0,
         .monitor_block = 30 // bad fiche, don north
     },
     {
-        .device = "RX01",
-        .mnemonic = "DX",
+    	.device_type = devRX01 ,
         .ufd_block_1 = 3,
         .ufd_blocks_num = 4,
         .bitmap_block_1 = 7,
         .bitmaps_num = 1,
         .mfd1 = 1,
         .mfd2 = 2,
-        .device_blocks_num = 494,
+        .blocks_num = 494,
         .prealloc_blocks_num = 40,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 8
     },
     {
-        .device = "RX02",
-        .mnemonic = "DY",
+    	.device_type = devRX02 ,
         .ufd_block_1 = 3,
         .ufd_blocks_num = 16,
         .bitmap_block_1 = 19,
         .bitmaps_num = 4,
         .mfd1 = 1,
         .mfd2 = 2,
-        .device_blocks_num = -1, // 988 ?  unknown, bad fiche
+        .blocks_num = 988,
         .prealloc_blocks_num = 55,
         .interleave = 1,
         .boot_block = 0,
         .monitor_block = 23
+    },
+    {
+    	.device_type = 0 // end marker
     }
-
 } ;
 
 

@@ -52,6 +52,7 @@
 #include <strings.h>
 #include <pthread.h>
 
+#include "error.h"
 #include "utils.h"
 #include "getopt2.h"
 #include "serial.h"
@@ -60,12 +61,9 @@
 #include "tu58.h"
 #include "tu58drive.h"
 
-#include "xxdp.h"	// for test
+#include "filesystem.h"
 
 #include "main.h"   // own
-
-uint8_t *dbgdata;
-uint32_t dbgdatasize;
 
 static char copyright[] = "(C) 2017 Joerg Hoppe <j_hoppe@t-online.de>,\n"
 		"(C) 2005-2017 Don North <ak6dn" "@" "mindspring.com>,\n"
@@ -222,10 +220,10 @@ static void commandline_option_error() {
  * result: 0 = OK, 1 = error
  */
 static void parse_commandline(int argc, char **argv) {
-	char buff[256];
+	char buff[1024];
 	int res;
 	int cur_autosizing = 0;
-	dec_filesystem_t cur_filesystem = fsnone;
+	filesystem_type_t cur_filesystem_type = fsNONE;
 
 	// define commandline syntax
 	getopt_init(&getopt_parser, /*ignore_case*/1);
@@ -270,8 +268,8 @@ static void parse_commandline(int argc, char **argv) {
 			NULL, NULL, NULL, NULL);
 	getopt_def(&getopt_parser, "sb", "stopbits", "count", NULL, "1", "Set 1 or 2 stop bits.",
 	NULL, NULL, NULL, NULL);
-	getopt_def(&getopt_parser, "p", "port", "device", NULL, "1",
-			"Select serial port: \"COM<device>:\" or <device> is a node like \"/dev/ttyS1\"",
+	getopt_def(&getopt_parser, "p", "port", "serial_device", NULL, "1",
+			"Select serial port: \"COM<serial_device>:\" or <serial_device> is a node like \"/dev/ttyS1\"",
 			NULL, NULL, NULL, NULL);
 
 	getopt_def(&getopt_parser, "xx", "xxdp", NULL, NULL, NULL,
@@ -316,21 +314,26 @@ static void parse_commandline(int argc, char **argv) {
 					"after RS232 port is silent for this period.",
 			NULL, NULL, NULL, NULL);
 
-	getopt_def(&getopt_parser, "up", "unpack", "filename,dirname", NULL, NULL,
-			"Read a binary disk/tape image, and extract files into directory\n"
-					"A filesystem type must be specified (like -xxdp)",
-			NULL, NULL, NULL, NULL);
-	getopt_def(&getopt_parser, "pk", "pack", "dirname,filename", NULL, NULL,
-			"Read files from a directory and pack into binary disk/tape image\n"
-					"A filesystem type must be specified (like -xxdp)",
-			NULL, NULL, NULL, NULL);
+	sprintf(buff, "Read a binary disk/tape image, and extract files into directory\n"
+			"A filesystem type must be specified (like -xxdp)\n"
+			"<device_type> can specify a different device geometry for the image,"
+			"allowed: %s", device_type_namelist());
+	getopt_def(&getopt_parser, "up", "unpack", "filename,dirname", "devicetype", NULL, buff,
+	NULL, NULL, NULL, NULL);
 
-/*
-	// test options
-	getopt_def(&getopt_parser, "testfs", "testfs", "filename", NULL, NULL,
-			"Read an image, convert it to filesystem and test",
-			NULL, NULL, NULL, NULL);
-*/
+	sprintf(buff, "Read a binary disk/tape image, and extract files into directory\n"
+			"Read files from a directory and pack into binary disk/tape image\n"
+			"<device_type> can specify a different device geometry for the image,"
+			"allowed: %s", device_type_namelist());
+	getopt_def(&getopt_parser, "pk", "pack", "dirname,filename", "devicetype", NULL, buff,
+	NULL, NULL, NULL, NULL);
+
+	/*
+	 // test options
+	 getopt_def(&getopt_parser, "testfs", "testfs", "filename", NULL, NULL,
+	 "Read an image, convert it to filesystem and test",
+	 NULL, NULL, NULL, NULL);
+	 */
 	if (argc < 2)
 		help(); // at least 1 required
 
@@ -374,12 +377,12 @@ static void parse_commandline(int argc, char **argv) {
 			if (opt_stopbits > 2)
 				commandline_option_error();
 		} else if (getopt_isoption(&getopt_parser, "port")) {
-			if (getopt_arg_s(&getopt_parser, "device", opt_port, sizeof(opt_port)) < 0)
+			if (getopt_arg_s(&getopt_parser, "serial_device", opt_port, sizeof(opt_port)) < 0)
 				commandline_option_error();
 		} else if (getopt_isoption(&getopt_parser, "xxdp")) {
-			cur_filesystem = fsxxdp;
+			cur_filesystem_type = fsXXDP;
 		} else if (getopt_isoption(&getopt_parser, "rt11")) {
-			cur_filesystem = fsrt11;
+			cur_filesystem_type = fsRT11;
 		} else if (getopt_isoption(&getopt_parser, "size")) {
 			char buff[256];
 			if (getopt_arg_s(&getopt_parser, "std_or_auto", buff, sizeof(buff)) < 0)
@@ -420,7 +423,7 @@ static void parse_commandline(int argc, char **argv) {
 			if (shared) {
 				if (getopt_arg_s(&getopt_parser, "directory", pathbuff, sizeof(pathbuff)) < 0)
 					commandline_option_error();
-				if (cur_filesystem == fsnone) {
+				if (cur_filesystem_type == fsNONE) {
 					strcpy(getopt_parser.curerrortext, "no filesystem specified");
 					commandline_option_error();
 				}
@@ -429,141 +432,106 @@ static void parse_commandline(int argc, char **argv) {
 					commandline_option_error();
 			}
 
+			image_init(tu58image_get(unit), devTU58) ;
 			if (image_open(tu58image_get(unit), shared, readonly, allowcreate, pathbuff,
-					devTU58, cur_filesystem, cur_autosizing) < 0)
+					cur_filesystem_type, cur_autosizing) < 0)
 				commandline_option_error();
 			image_info(tu58image_get(unit));
 			image_count++;
 		} else if (getopt_isoption(&getopt_parser, "unpack")) {
 			char filename[4096];
 			char dirname[4096];
+			char device_type_s[256];
 			image_t img;
-			xxdp_filesystem_t *pdp_fs;
+			filesystem_t *pdp_fs;
 			hostdir_t *hostdir;
+			device_type_t device_type;
 			if (getopt_arg_s(&getopt_parser, "filename", filename, sizeof(filename)) < 0)
 				commandline_option_error();
 			if (getopt_arg_s(&getopt_parser, "dirname", dirname, sizeof(dirname)) < 0)
 				commandline_option_error();
-			if (cur_filesystem == fsnone)
+			if (getopt_arg_s(&getopt_parser, "devicetype", device_type_s, sizeof(device_type_s))
+					< 0)
+				commandline_option_error();
+			if (strlen(device_type_s))
+				device_type = device_type_from_name(device_type_s);
+			else
+				device_type = devTU58;
+			if (cur_filesystem_type == fsNONE) {
+				strcpy(getopt_parser.curerrortext, "no filesystem specified");
+				commandline_option_error();
+			}
+			if (device_type == devNONE)
 				commandline_option_error();
 			// read binary
-			image_init(&img);
+			image_init(&img, device_type);
 			// autosizing, so no device info needed
-			if (image_open(&img, 0, 0, 0, filename, devTU58, cur_filesystem, 1))
+			if (image_open(&img, 0, 0, 0, filename, cur_filesystem_type, 1))
 				fatal("image_open failed");
 
-			pdp_fs = xxdp_filesystem_create(devTU58, &img.data, &img.data_size,
-					img.changedblocks, 0);
-			if (xxdp_filesystem_parse(pdp_fs))
-				fatal("xxdp_filesystem_parse failed");
+			pdp_fs = filesystem_create(cur_filesystem_type, device_type, &img.data,
+					&img.data_size, img.changedblocks, 0);
+			if (filesystem_parse(pdp_fs))
+				fatal("filesystem_parse failed");
 			hostdir = hostdir_create(dirname, pdp_fs);
 			if (hostdir_prepare(hostdir, 1, 1, NULL))
 				fatal("hostdir_prepare failed");
 			hostdir_from_pdp_fs(hostdir);
-			xxdp_filesystem_print_dir(pdp_fs, ferr);
+			filesystem_print_dir(pdp_fs, ferr);
 			info("Files extracted from \"%s\" and written to \"%s\".", filename, dirname);
-			xxdp_filesystem_destroy(pdp_fs);
+			filesystem_destroy(pdp_fs);
 			hostdir_destroy(hostdir);
 			image_close(&img);
 
 		} else if (getopt_isoption(&getopt_parser, "pack")) {
 			char filename[4096];
 			char dirname[4096];
-			xxdp_filesystem_t *pdp_fs;
+			char device_type_s[256];
+			image_t img;
+			filesystem_t *pdp_fs;
 			hostdir_t *hostdir;
 			uint8_t *data = NULL; // buffer
-			dbgdata = NULL;
-			dbgdatasize = 0;
+			device_type_t device_type;
 			unsigned data_size = 0;
 			if (getopt_arg_s(&getopt_parser, "filename", filename, sizeof(filename)) < 0)
 				commandline_option_error();
 			if (getopt_arg_s(&getopt_parser, "dirname", dirname, sizeof(dirname)) < 0)
 				commandline_option_error();
-			if (cur_filesystem != fsxxdp)
+			if (getopt_arg_s(&getopt_parser, "devicetype", device_type_s, sizeof(device_type_s))
+					< 0)
 				commandline_option_error();
+			if (strlen(device_type_s))
+				device_type = device_type_from_name(device_type_s);
+			else
+				device_type = devTU58;
+			if (device_type == devNONE)
+				commandline_option_error();
+			if (cur_filesystem_type == fsNONE) {
+				strcpy(getopt_parser.curerrortext, "no filesystem specified");
+				commandline_option_error();
+			}
+			image_init(&img, device_type); // img is just a data buffer
+			//
 
-			pdp_fs = xxdp_filesystem_create(devTU58, &dbgdata, &dbgdatasize, NULL, 1);
+			pdp_fs = filesystem_create(cur_filesystem_type, device_type, &img.data,	&img.data_size,
+					NULL, 1);
 			hostdir = hostdir_create(dirname, pdp_fs);
 			if (hostdir_prepare(hostdir, 0, 0, NULL)) // check
 				fatal("hostdir_prepare failed");
 			if (hostdir_to_pdp_fs(hostdir))
-				fatal("hostdir_to_xxdp failed");
-			if (xxdp_filesystem_render(pdp_fs))
-				fatal("xxdp_filesystem_render failed");
-			xxdp_filesystem_print_dir(pdp_fs, ferr);
+				fatal("hostdir_to_pdp_fs failed");
+			if (filesystem_render(pdp_fs))
+				fatal("filesystem_render failed");
+			filesystem_print_dir(pdp_fs, ferr);
 			{
 				FILE *f = fopen(filename, "w+");
 				if (!f)
 					fatal("opening file %s failed", filename);
-				fwrite(dbgdata, 1, dbgdatasize, f);
+				fwrite(img.data, 1, img.data_size, f);
 				fclose(f);
 			}
-			xxdp_filesystem_destroy(pdp_fs);
+			filesystem_destroy(pdp_fs);
 			hostdir_destroy(hostdir);
-
-		} else if (getopt_isoption(&getopt_parser, "testfs")) {
-			char pathbuff[4096];
-			if (getopt_arg_s(&getopt_parser, "filename", pathbuff, sizeof(pathbuff)) < 0)
-				commandline_option_error();
-			image_t *img = tu58image_get(7);
-			xxdp_filesystem_t *pdp_fs;
-			// use unit 7 to test
-			if (getopt_arg_s(&getopt_parser, "filename", pathbuff, sizeof(pathbuff)) < 0)
-				commandline_option_error();
-			// open fix size, read/write, create not allowed, single file
-			//if (image_open(7, 0, 0, 0, buff, fsxxdp, 0) < 0)
-			if (image_open(img, 0, 0, 0, pathbuff, devTU58, fsxxdp, 1) < 0)
-				commandline_option_error();
-			pdp_fs = xxdp_filesystem_create(devRL02, &(img->data), &(img->data_size), NULL,
-					cur_autosizing);
-			// xxdp_filesystem_create(&fs, devTU58, &(img->data), &(img->size));
-			xxdp_filesystem_parse(pdp_fs);
-
-			xxdp_filesystem_print_dir(pdp_fs, ferr);
-			{
-				FILE *f = fopen("blocks.log", "w+");
-				if (!f)
-					perror("F?!");
-				xxdp_filesystem_print_blocks(pdp_fs, f);
-				fclose(f);
-			}
-
-//			hostdir_prepare("hostdir.tst", 1);
-//			hostdir_from_xxdp("hostdir.tst", &fs);
-
-			// rewrite image from logical filesystem
-			xxdp_filesystem_render(pdp_fs);
-
-			// dump as image
-			{
-				FILE *f = fopen("tst_render.img", "w+");
-				if (!f)
-					perror("F?!");
-				fwrite(img->data, 1, img->data_size, f);
-				fclose(f);
-			}
-
-			image_close(img);
-			xxdp_filesystem_destroy(pdp_fs);
-			// re-parse the produced image
-
-			if (image_open(img, 0, 0, 0, "tst_render.img", devTU58, fsxxdp, 1) < 0)
-				fatal("Can not open just rendered image");
-			// parse 2nd time
-			pdp_fs = xxdp_filesystem_create(devRL02, &(img->data), &(img->data_size), NULL,
-					cur_autosizing);
-			xxdp_filesystem_parse(pdp_fs);
-			xxdp_filesystem_print_dir(pdp_fs, ferr);
-			{
-				FILE *f = fopen("tst_render.log", "w+");
-				if (!f)
-					perror("F?!");
-				xxdp_filesystem_print_blocks(pdp_fs, f);
-				fclose(f);
-			}
-
-			xxdp_filesystem_destroy(pdp_fs);
-			exit(0);
 		}
 
 		res = getopt_next(&getopt_parser);
@@ -621,8 +589,8 @@ static void device_dialog(image_t *img) {
 				;
 			else {
 				image_close(img);
-				// re-open with all paramas same, only other file
-				if (image_open(img, img->shared, img->readonly, 0, fpath, img->dec_device,
+				// re-open with all params same, only other file
+				if (image_open(img, img->shared, img->readonly, 0, fpath,
 						img->dec_filesystem, img->autosizing) < 0)
 					error("Opening file \"%s\" failed", fpath);
 				else
@@ -729,6 +697,7 @@ void run(void) {
 int main(int argc, char *argv[]) {
 	int i, n;
 
+	error_clear() ;
 	ferr = stdout; // ferr in Eclipse console not visible?
 
 	// init file structures

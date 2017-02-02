@@ -1,4 +1,4 @@
-/* utils.h: miscellaneous helpers
+/* error.c: global error handling
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -33,40 +33,48 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  20-Jan-2017  JH  created
+ *  29-Jan-2017  JH  created
  */
 
-#ifndef _UTILS_H_
-#define _UTILS_H_
-
 #include <stdio.h>
-#include <stdint.h>
-#include <time.h>
+#include <string.h>
+#include <stdarg.h>
+#include <assert.h>
+
+#include "main.h"  // error()
+#include "error.h"  // own
 
 
-// how many blocks are needed to hold "data_size" bytes?
-#define NEEDED_BLOCKS(blocksize,data_size) ( ((data_size)+(blocksize)-1) / (blocksize) )
+FILE *ferr = NULL; // variable error stream
 
+// global last raised error
+int error_code;
+// a stack of messages, for several caller infos
+//int error_trace_level;
+//char error_message[ERROR_MAX_TRACE_LEVEL + 1][1024];
 
-void delay_ms(int32_t ms);
-uint64_t now_ms(); // current timestamp in milli seconds
+void error_clear() {
+	error_code = 0;
+//	error_trace_level = 0;  //
+}
 
-int is_memset(void *ptr, uint8_t val, uint32_t size);
-char *strtrim(char *txt);
-char *strrpad(char *txt, int len, char c);
-int inputline(char **tokenlist, int tokenlist_size);
+// raise an error.
+// can be used as "return error_set(...);"
+//  text is pushed onto an message stack
+int error_set(int code, char *fmt, ...) {
+	char buffer[1024];
+	va_list args;
+//	assert(error_trace_level < ERROR_MAX_TRACE_LEVEL) ;
+	error_code = code;
+	if (code == ERROR_OK)
+		error_clear();
+	else if (fmt && strlen(fmt)) {
+		va_start(args, fmt);
+		vsprintf(buffer, fmt, args);
+		va_end(args);
+		// strcpy(error_message[error_trace_level++], buffer);
+		error(buffer);
+	}
+	return error_code;
+}
 
-char *rad50_decode(uint16_t w);
-uint16_t rad50_encode(char *s);
-struct tm dos11date_decode(uint16_t w);
-uint16_t dos11date_encode(struct tm t);
-
-char *extract_extension(char *filename, int truncate) ;
-
-
-void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...);
-
-void *search_tagged_array(void *base, int element_size, int search_val) ;
-
-
-#endif /* UTILS_H_ */

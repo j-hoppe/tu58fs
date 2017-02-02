@@ -1,4 +1,4 @@
-/* utils.h: miscellaneous helpers
+/* rt11_radi.h - RT11-random access device information
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -33,40 +33,25 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  20-Jan-2017  JH  created
+ *  28-Jan-2017  JH  created
+ *
  */
+#ifndef _RT11_RADI_H_
+#define _RT11_RADI_H_
 
-#ifndef _UTILS_H_
-#define _UTILS_H_
-
-#include <stdio.h>
 #include <stdint.h>
-#include <time.h>
 
+// RT-11 specfic device parmaeters "Random Access Device Information"
+typedef struct {
+	int device_type; // device_type_t tag to search for. see search_tagged_array()
+	uint16_t block_count; // # of blocks RT-11 uses
+	uint16_t first_dir_blocknr; // alwys 6?
+	uint16_t replacable_bad_blocks;
+	uint16_t dir_seg_count; // default segmetn count
+} rt11_radi_t;
 
-// how many blocks are needed to hold "data_size" bytes?
-#define NEEDED_BLOCKS(blocksize,data_size) ( ((data_size)+(blocksize)-1) / (blocksize) )
+#ifndef _RT11_RADI_C_
+extern rt11_radi_t rt11_radi[];
+#endif
 
-
-void delay_ms(int32_t ms);
-uint64_t now_ms(); // current timestamp in milli seconds
-
-int is_memset(void *ptr, uint8_t val, uint32_t size);
-char *strtrim(char *txt);
-char *strrpad(char *txt, int len, char c);
-int inputline(char **tokenlist, int tokenlist_size);
-
-char *rad50_decode(uint16_t w);
-uint16_t rad50_encode(char *s);
-struct tm dos11date_decode(uint16_t w);
-uint16_t dos11date_encode(struct tm t);
-
-char *extract_extension(char *filename, int truncate) ;
-
-
-void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...);
-
-void *search_tagged_array(void *base, int element_size, int search_val) ;
-
-
-#endif /* UTILS_H_ */
+#endif /* _RT11_RADI_H_ */

@@ -1,4 +1,4 @@
-/* utils.h: miscellaneous helpers
+/* xxdp_radi.h - XXDP-random access device information
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -34,39 +34,32 @@
  *
  *
  *  20-Jan-2017  JH  created
+ *
  */
+#ifndef _XXDP_RADI_H_
+#define _XXDP_RADI_H_
 
-#ifndef _UTILS_H_
-#define _UTILS_H_
-
-#include <stdio.h>
 #include <stdint.h>
-#include <time.h>
+
+// XXDP Random Access Device Information
+typedef struct {
+	int	device_type; // device_type_t tag to search for. see search_tagged_array()
+	uint16_t ufd_block_1; // 1st UFD block
+	uint16_t ufd_blocks_num; // number of ufd blocks
+	uint16_t bitmap_block_1; // 1st bit map block
+	uint16_t bitmaps_num; // number of bitmaps
+	int mfd1;
+	int mfd2;
+	int blocks_num; // # of blocks XXDP uses
+	uint16_t prealloc_blocks_num; // number of blocks to preallocate
+	int interleave;
+	uint16_t boot_block;
+	uint16_t monitor_block;
+} xxdp_radi_t;
+
+#ifndef _XXDP_RADI_C_
+extern xxdp_radi_t xxdp_radi[];
+#endif
 
 
-// how many blocks are needed to hold "data_size" bytes?
-#define NEEDED_BLOCKS(blocksize,data_size) ( ((data_size)+(blocksize)-1) / (blocksize) )
-
-
-void delay_ms(int32_t ms);
-uint64_t now_ms(); // current timestamp in milli seconds
-
-int is_memset(void *ptr, uint8_t val, uint32_t size);
-char *strtrim(char *txt);
-char *strrpad(char *txt, int len, char c);
-int inputline(char **tokenlist, int tokenlist_size);
-
-char *rad50_decode(uint16_t w);
-uint16_t rad50_encode(char *s);
-struct tm dos11date_decode(uint16_t w);
-uint16_t dos11date_encode(struct tm t);
-
-char *extract_extension(char *filename, int truncate) ;
-
-
-void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...);
-
-void *search_tagged_array(void *base, int element_size, int search_val) ;
-
-
-#endif /* UTILS_H_ */
+#endif /* _XXDP_RADI_H_ */

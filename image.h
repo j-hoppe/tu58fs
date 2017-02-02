@@ -45,6 +45,8 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include "boolarray.h"
+#include "device_info.h"
+#include "filesystem.h"
 #include "hostdir.h"
 
 // just for bitmap of changed blocks
@@ -63,9 +65,10 @@ typedef struct {
 
 	struct stat host_fattr; // timestamps on open(), do track changes on disk
 	hostdir_t	*hostdir ; // if shared
-	xxdp_filesystem_t *pdp_filesystem ;
+	filesystem_t *pdp_filesystem ;
 
 	// basic geometry
+	device_info_t *device_info ;
 	int	blocksize ;
 	int	min_blockcount ; // limit for enlarge()
 	int	max_blockcount ; // limit for enlarge()
@@ -76,8 +79,8 @@ typedef struct {
 	uint64_t changetime_ms; // time of last write in milli secs
 
 	// memory buffer for image
-	dec_device_t dec_device ; // TU58
-	dec_filesystem_t dec_filesystem; // fsgeneric, fsxxdp, fsrt11
+	device_type_t dec_device ; // TU58
+	filesystem_type_t dec_filesystem; // fsgeneric, fsxxdp, fsrt11
 	uint32_t data_size; // count of allocated bytzes in ->data
 	uint8_t *data; // dynamic
 	uint32_t seekpos; //read/write pointer, result of seek(). next unread byte
@@ -86,10 +89,10 @@ typedef struct {
 
 // image_t *tu58image_get(int32_t unit);
 // image_t *image_is_open(image_t *_this);
-void image_init(image_t *_this) ;
+void image_init(image_t *_this, device_type_t dec_device) ;
 
 int image_open(image_t *_this, int shared, int readonly, int allowcreate, char *fname,
-		dec_device_t dec_device, dec_filesystem_t dec_filesystem, int autosizing) ;
+		filesystem_type_t dec_filesystem, int autosizing) ;
 int image_lseek(image_t *_this, int offset, int whence);
 int image_blockseek(image_t *_this, int32_t size, int32_t block, int32_t offset);
 
