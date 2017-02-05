@@ -93,15 +93,13 @@ uint8_t rt11_nobootblock[512] = { //
 /*************************************************************
  * low level operators
  *************************************************************/
-// derefenced for daily use
-#define IMAGE_SIZE(_this) (*((_this)->image_size_ptr))
-#define IMAGE_DATA(_this) (*((_this)->image_data_ptr))
+
 // ptr to first byte of block
-#define IMAGE_BLOCKNR2PTR(_this,blocknr) (IMAGE_DATA(_this) + (RT11_BLOCKSIZE *(blocknr)))
+#define IMAGE_BLOCKNR2PTR(_this,blocknr) ((_this)->image_data + (RT11_BLOCKSIZE *(blocknr)))
 // convert pointer in image to block
-#define IMAGE_PTR2BLOCKNR(_this,ptr) ( ((uint8_t*)(ptr) - IMAGE_DATA(_this)) / RT11_BLOCKSIZE)
+#define IMAGE_PTR2BLOCKNR(_this,ptr) ( ((uint8_t*)(ptr) - (_this)->image_data) / RT11_BLOCKSIZE)
 // offset in block in bytes
-#define IMAGE_PTR2BLOCKOFFSET(_this,ptr) ( ((uint8_t*)	(ptr) - IMAGE_DATA(_this)) % RT11_BLOCKSIZE)
+#define IMAGE_PTR2BLOCKOFFSET(_this,ptr) ( ((uint8_t*)	(ptr) - (_this)->image_data) % RT11_BLOCKSIZE)
 
 #define IMAGE_GET_WORD(ptr) (  (uint16_t) ((uint8_t *)(ptr))[0]  |  (uint16_t) ((uint8_t *)(ptr))[1] << 8  )
 #define IMAGE_PUT_WORD(ptr,w) ( ((uint8_t *)(ptr))[0] = (w) & 0xff, ((uint8_t *)(ptr))[1] = ((w) >> 8) & 0xff  )
@@ -111,18 +109,18 @@ uint8_t rt11_nobootblock[512] = { //
 static uint16_t rt11_image_get_word_at(rt11_filesystem_t *_this, rt11_blocknr_t blocknr,
 		uint32_t byte_offset) {
 	uint32_t idx = RT11_BLOCKSIZE * blocknr + byte_offset;
-	assert(idx >= 0 && (idx+1) < IMAGE_SIZE(_this));
+	assert(idx >= 0 && (idx + 1) < _this->image_size);
 
-	return IMAGE_DATA(_this)[idx] | (IMAGE_DATA(_this)[idx + 1] << 8);
+	return _this->image_data[idx] | (_this->image_data[idx + 1] << 8);
 }
 
 static void rt11_image_set_word_at(rt11_filesystem_t *_this, rt11_blocknr_t blocknr,
 		uint32_t byte_offset, uint16_t val) {
 	uint32_t idx = RT11_BLOCKSIZE * blocknr + byte_offset;
-	assert(idx >= 0 && (idx+1) < IMAGE_SIZE(_this));
+	assert(idx >= 0 && (idx + 1) < _this->image_size);
 
-	IMAGE_DATA(_this)[idx] = val & 0xff;
-	IMAGE_DATA(_this)[idx + 1] = (val >> 8) & 0xff;
+	_this->image_data[idx] = val & 0xff;
+	_this->image_data[idx + 1] = (val >> 8) & 0xff;
 	//fprintf(ferr, "set 0x%x to 0x%x\n", idx, val) ;
 }
 
@@ -218,17 +216,25 @@ static void rt11_filesystem_mark_filestream_as_changed(rt11_filesystem_t *_this,
 		for (blknr = stream->blocknr; !stream->changed && blknr < blkend; blknr++)
 			stream->changed |= BOOLARRAY_BIT_GET(_this->image_changed_blocks, blknr);
 //		stream->changed |= boolarray_bit_get(_this->image_changed_blocks, blknr);
-		// possible optimization: boolarray is tested seqeuntially
+		// possible optimization: boolarray is tested sequentially
 	}
 }
 
 static void rt11_filesystem_mark_filestreams_as_changed(rt11_filesystem_t *_this) {
 	int i;
+	rt11_blocknr_t blknr;
 	// boolarray_print_diag(_this->image_changed_blocks,stderr, _this->blockcount, "RT11") ;
 	// bootblock
 	rt11_filesystem_mark_filestream_as_changed(_this, _this->bootblock);
 	rt11_filesystem_mark_filestream_as_changed(_this, _this->monitor);
-	// Homeblock-> VOLUME.INF ??
+
+	// Homeblock changed?
+	_this->struct_changed = BOOLARRAY_BIT_GET(_this->image_changed_blocks, 1);
+	// any dir entries changed?
+	for (blknr = _this->first_dir_blocknr;
+			blknr < _this->first_dir_blocknr + 2 * _this->dir_total_seg_num; blknr++)
+		_this->struct_changed |= BOOLARRAY_BIT_GET(_this->image_changed_blocks, blknr);
+
 	// rt11_filesystem_mark_filestream_as_changed(_this, _this->monitor);
 	for (i = 0; i < _this->file_count; i++) {
 		rt11_file_t *f = _this->file[i];
@@ -241,11 +247,10 @@ static void rt11_filesystem_mark_filestreams_as_changed(rt11_filesystem_t *_this
  * constructor / destructor
  *************************************************************************/
 
-rt11_filesystem_t *rt11_filesystem_create(device_type_t dec_device, uint8_t **image_data_ptr,
-		uint32_t *image_size_ptr, boolarray_t *changedblocks, int expandable) {
+rt11_filesystem_t *rt11_filesystem_create(device_type_t dec_device, uint8_t *image_data,
+		uint32_t image_size, boolarray_t *changedblocks) {
 	int i;
 	rt11_filesystem_t *_this;
-	extern rt11_radi_t rt11_radi[];
 
 	_this = malloc(sizeof(rt11_filesystem_t));
 	_this->dec_device = dec_device;
@@ -259,11 +264,9 @@ rt11_filesystem_t *rt11_filesystem_create(device_type_t dec_device, uint8_t **im
 	assert(_this->radi);
 
 	// save pointer to variables defining image buffer data
-	_this->image_data_ptr = image_data_ptr;
-	_this->image_size_ptr = image_size_ptr;
+	_this->image_data = image_data;
+	_this->image_size = image_size;
 	_this->image_changed_blocks = changedblocks;
-
-	_this->expandable = expandable;
 
 	// these are always there, static allocated
 #ifdef DEFAULTBOOTLOADER
@@ -295,11 +298,17 @@ void rt11_filesystem_destroy(rt11_filesystem_t *_this) {
 }
 
 // free / clear all structures, set default values
-// save "expandable" flag for _add_file() operation
 void rt11_filesystem_init(rt11_filesystem_t *_this) {
 	int i;
 	// set device params
-	_this->blockcount = _this->radi->block_count;
+
+	// image may be variable sized !
+	_this->blockcount = NEEDED_BLOCKS(RT11_BLOCKSIZE, _this->image_size);
+
+	/*
+	 _this->blockcount = _this->radi->block_count;
+	 */
+
 	if (_this->blockcount < 0) {
 		fprintf(stderr,
 				"rt11_filesystem_init(): RT-11 blockcount for device %s not yet defined!",
@@ -342,6 +351,7 @@ void rt11_filesystem_init(rt11_filesystem_t *_this) {
 	strcpy(_this->system_id, "DECRT11A    ");
 	_this->dir_entry_extra_bytes = 0;
 	_this->homeblock_chksum = 0;
+	_this->struct_changed = 0;
 }
 
 // calculate ratio between directory segments and data blocks
@@ -377,6 +387,10 @@ static int rt11_filesystem_calc_block_use(rt11_filesystem_t *_this, int test_dat
 		used_file_blocks += NEEDED_BLOCKS(RT11_BLOCKSIZE, test_data_size);
 
 	// total blocks available for dir and data
+	// On disk supporting STd144 bad secotr info,
+	// "available blocks" should not be calculated from total disk size,
+	// but from usable blockcount of "rt11_radi".
+	// Difficulties in case of enlarged images!
 	available_blocks = _this->blockcount - _this->first_dir_blocknr; // boot, home, 2..5 used
 	if (test_data_size)
 		dir_max_seg_nr = rt11_dir_needed_segments(_this, _this->file_count + 1);
@@ -386,7 +400,7 @@ static int rt11_filesystem_calc_block_use(rt11_filesystem_t *_this, int test_dat
 		// files do not fit on volume
 		if (!test_data_size)
 			_this->free_blocks = 0; // can't be negative
-		return ERROR_FILESYSTEM_OVERFLOW;
+		return error_set(ERROR_FILESYSTEM_OVERFLOW, "rt11_filesystem_calc_block_use");
 	}
 	if (test_data_size)
 		return ERROR_OK;
@@ -497,7 +511,7 @@ static void parse_homeblock(rt11_filesystem_t *_this) {
 
 // popint to start of  directory segment [i]
 // segment[0] at directory_startblock (6), and 1 segment = 2 blocks. i starts with 1.
-#define DIR_SEGMENT(_this,i)  ( (uint16_t *) (IMAGE_DATA(_this)+ (_this)->first_dir_blocknr*RT11_BLOCKSIZE +(((i)-1)*2*RT11_BLOCKSIZE)) )
+#define DIR_SEGMENT(_this,i)  ( (uint16_t *) ((_this)->image_data+ (_this)->first_dir_blocknr*RT11_BLOCKSIZE +(((i)-1)*2*RT11_BLOCKSIZE)) )
 
 static void parse_directory(rt11_filesystem_t *_this) {
 	uint16_t *ds; // ptr to start of directory segment
@@ -704,11 +718,8 @@ static int rt11_filesystem_layout(rt11_filesystem_t *_this) {
 					_this->monitor->data_size);
 	}
 
-	// blockcount may have been enlarged by previous run
-	_this->blockcount = _this->device_info->block_count;
-
 	if (rt11_filesystem_calc_block_use(_this, 0))
-		return error_code; // overflow
+		return error_code;
 	// free, used blocks, dir_total_seg_num now set
 
 	// file area begins after directory segment list
@@ -926,7 +937,7 @@ static void render_file_data(rt11_filesystem_t *_this) {
 int rt11_filesystem_render(rt11_filesystem_t *_this) {
 
 	// format media, all 0's
-	memset(*(_this->image_data_ptr), 0, *(_this->image_size_ptr));
+	memset(_this->image_data, 0, _this->image_size);
 
 	if (rt11_filesystem_layout(_this))
 		return error_code; // oversized
@@ -964,7 +975,7 @@ static void rt11_filesystem_render_volumeinfo(rt11_filesystem_t *_this, rt11_fil
 	struct tm tm = *localtime(&t);
 
 	text_buffer[0] = 0;
-	sprintf(line, "# %s.%s - info about RT-11 volumne on %s device.\n", f->filnam, f->ext,
+	sprintf(line, "# %s.%s - info about RT-11 volume on %s device.\n", f->filnam, f->ext,
 			_this->device_info->device_name);
 	strcat(text_buffer, line);
 	sprintf(line, "# Produced by TU58FS at %d-%d-%d %d:%d:%d\n", tm.tm_year + 1900,
@@ -989,6 +1000,10 @@ static void rt11_filesystem_render_volumeinfo(rt11_filesystem_t *_this, rt11_fil
 	sprintf(line, "\nsystem_id=%s\n", _this->system_id);
 	strcat(text_buffer, line);
 
+	sprintf(line, "\n# number of %d byte blocks on volume\nblock_count=%d\n",
+	RT11_BLOCKSIZE, _this->blockcount);
+	strcat(text_buffer, line);
+
 	sprintf(line, "\n# number of extra bytes per directory entry\ndir_entry_extra_bytes=%d\n",
 			_this->dir_entry_extra_bytes);
 	strcat(text_buffer, line);
@@ -1008,7 +1023,7 @@ static void rt11_filesystem_render_volumeinfo(rt11_filesystem_t *_this, rt11_fil
 
 	for (i = 0; i < _this->file_count; i++) {
 		rt11_file_t *f = _this->file[i];
-		sprintf(line, "\n# file %d \"%s.%s\".", i, f->filnam, f->ext);
+		sprintf(line, "\n# File %2d \"%s.%s\".", i, f->filnam, f->ext);
 		strcat(text_buffer, line);
 		if (f->prefix) {
 			sprintf(line, " Prefix %d = 0x%X bytes, start block %d @ 0x%X.",
@@ -1031,11 +1046,14 @@ static void rt11_filesystem_render_volumeinfo(rt11_filesystem_t *_this, rt11_fil
 	stream_buffer.data_size = strlen(text_buffer);
 	assert(stream_buffer.data_size < sizeof(text_buffer)); // buffer overun?
 	f->data = &stream_buffer;
+	// VOLUM INF is "changed", if home block or directories changed
+	f->data->changed = _this->struct_changed;
 }
 
 // special:
 // -1: bootblock
-// else regular file
+// -2 : boot monitor
+// -3: volume information text file
 // fname: filnam.ext
 //  Optional some of the hoe block data could be hold in a textfile
 // with "name=value" entries, and a name of perhaps "$META.DAT"
@@ -1054,7 +1072,7 @@ int rt11_filesystem_file_stream_add(rt11_filesystem_t *_this, char *hostfname, c
 		time_t hostfdate, mode_t hostmode, uint8_t *data, uint32_t data_size) {
 	// fprintf(stderr, "rt11_filesystem_file_stream_add(%s)\n", hostfname);
 	if (!strcasecmp(hostfname, RT11_VOLUMEINFO_FILNAM "." RT11_VOLUMEINFO_EXT)) {
-		// evaluate parameter file
+		// evaluate parameter file ?
 	} else if (!strcasecmp(hostfname, RT11_BOOTBLOCK_FILNAM "." RT11_BOOTBLOCK_EXT)) {
 		if (!streamcode) { // some tests produced "$BOOT.BLK.dirext" !
 			if (data_size != RT11_BLOCKSIZE)
@@ -1157,7 +1175,7 @@ int rt11_filesystem_file_stream_add(rt11_filesystem_t *_this, char *hostfname, c
 }
 
 // access files,and special bootblock/monitor/volumeinfo in an uniform way
-// -3= volume info, -2 = monitor, -1 = boot block
+// -3 = volume info, -2 = monitor, -1 = boot block
 // bootblock is NULL, if empty
 rt11_file_t *rt11_filesystem_file_get(rt11_filesystem_t *_this, int fileidx) {
 	rt11_file_t *result = NULL;

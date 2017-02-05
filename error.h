@@ -1,4 +1,4 @@
-/* error.h: global error handling
+/* error.h: global error & info handling
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -66,5 +66,10 @@ extern int error_code ;
 
 void error_clear(void) ;
 int error_set(int code, char *fmt, ...) ;
+
+void fatal (char *, ...);
+void error (char *, ...);
+void info (char *, ...);
+
 
 #endif

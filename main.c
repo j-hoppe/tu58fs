@@ -35,13 +35,14 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- * 12-Jan-2017    JH  V 0.1   Edit start
+ *  5-Feb-2017 	JH  V 0.5 	RT-11 working
+ * 12-Jan-2017  JH  V 0.1   Edit start
  *
  */
 
 #define _MAIN_C_
 
-#define VERSION	"v0.1"
+#define VERSION	"v0.5"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -69,7 +70,7 @@ static char copyright[] = "(C) 2017 Joerg Hoppe <j_hoppe@t-online.de>,\n"
 		"(C) 2005-2017 Don North <ak6dn" "@" "mindspring.com>,\n"
 		"(C) 1984 Dan Ts'o <Rockefeller University>";
 
-static char version[] = "tu58fs - DEC TU58 tape emulator with file sharing "VERSION "\n"
+static char version[] = "tu58fs - DEC TU58 tape emulator with File Sharing "VERSION "\n"
 "(compile "__DATE__ " " __TIME__ ")";
 
 // global options
@@ -92,47 +93,6 @@ int arg_menu_linewidth = 80;
 static getopt_t getopt_parser;
 static int image_count;
 
-//
-// print an info message and return
-//
-void info(char *fmt, ...) {
-	va_list args;
-	if (!opt_background) {
-		va_start(args, fmt);
-		fprintf(ferr, "info: ");
-		vfprintf(ferr, fmt, args);
-		fprintf(ferr, "\n");
-		va_end(args);
-	}
-	return;
-}
-
-//
-// print an error message and return
-//
-void error(char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	fprintf(ferr, "ERROR: ");
-	vfprintf(ferr, fmt, args);
-	fprintf(ferr, "\n");
-	va_end(args);
-	return;
-}
-
-//
-// print an error message and die
-//
-void fatal(char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	fprintf(ferr, "FATAL: ");
-	vfprintf(ferr, fmt, args);
-	fprintf(ferr, "\n");
-	va_end(args);
-	exit(EXIT_FAILURE);
-}
-
 /*
  * help()
  */
@@ -140,7 +100,7 @@ static char * examples[] =
 		{
 				"sudo ./" PROGNAME "-p /dev/ttyS1 -b 38400 -d 0 r 11XXDP.DSK\n", //
 				"    Define device #0:\n", //
-				"    Access to serial line requires sudo. Image is readonly.\n", //
+				"    Access to serial line device requires \"sudo\". Image is readonly.\n", //
 				"    If it not exist, an error is signaled.\n",
 				"\n", //
 				PROGNAME " <serial params> -d 0 c 11XXDP.DSK\n", //
@@ -151,23 +111,22 @@ static char * examples[] =
 				"    Image is constructed from file content, to a max size of 256kb, else error.\n", //
 				"    Can be accessed with \"DD1:\"\n", //
 				"\n",
-				PROGNAME " <serial params> -size auto -rt11 -d 1 w tinyrt11\n", //
-				"    Same, but device image is automatically enlarged to > 256KB, max 32MB.\n", //
-				"    A modified DD.SYS driver must be used on the RT11 system,\n", //
+				PROGNAME " <serial params> --size 10M -rt11 -d 1 w bigrt11\n", //
+				"    Same, but device image is automatically enlarged to 10MBytes, max 32MB.\n", //
+				"    A modified DD.SYS driver must be used on the RT11 system.\n", //
 				"\n", //
-				PROGNAME " <serial params> -size std -xxdp -d 0 r 11XXDP.DSK  -size auto -d 1 w data.dsk -sd 7 w shared.dir\n", //
+				PROGNAME " <serial params> -xxdp -d 0 r 11XXDP.DSK -d 1 w data.dsk -sd 7 w shared.dir\n", //
 				"    Define device #0:\n", //
 				"    Standard 256kb image, loaded from file \"11XXDP.DSK\", not created.\n", //
 				"    Device #1:\n", //
-				"    If \"data.dsk\" does not exist, a file is create and formated as empty XXDP\n", //
+				"    If \"data.dsk\" does not exist, a file is create and formatted as empty XXDP\n", //
 				"    If \"data.dsk\" exists, it is opened for read/write\n", //
-				"    The image #1 may be oversized.\n", //
-				"    Device 7:\n", //
-				"    also oversized, contains the files in a sub directory \"shared.dir\" on the host.\n", //
+				"    Device #7:\n", //
+				"    contains the files in a sub directory \"shared.dir\" on the host.\n", //
 				"    Can be accessed with \"DD0:\", \"DD1:\", \"DD7:\"\n",
 				"\n", //
-				PROGNAME " -xxdp --unpack 11XXDP.DSK 11xxdp.dir\n", //
-				"    Extracts all files from an image into a directory.\n", //
+				PROGNAME " -xxdp --unpack 11XXDP.DSK 11xxdp.dir TU58\n", //
+				"    Extracts all files from an TU58 image into a directory.\n", //
 				"    If image is bootable, pseudofiles for bootloader and monitor are generated.\n", //
 				"    The directory is then bootable too.\n", //
 				"\n", //
@@ -176,6 +135,11 @@ static char * examples[] =
 				"    Standard 256kb image, loaded from file \"11xxdp.dir\", not created.\n", //
 				"    Dir is bootable, if it contains the pseudo files for monitor and boot block.\n", //
 				"    A bootable dir is can be created by unpacking a bootable image file.\n", //
+				"\n", //
+				PROGNAME " <serial params> -rt11 -unpack RT11V53.DSK rt11v53.imgdir TU58 -sd 0 w rt11v53.imgdir\n", //
+				"    Combination of exmaples before:\n", //
+				"    Extract content of image into shared directory, then run TU58 emulator on that directory.\n",
+				"    Dir is bootable, if the image is bootable.\n", //
 				"\n", //
 				NULL };
 
@@ -187,10 +151,10 @@ void help() {
 	fprintf(ferr, "\n");
 	fprintf(ferr, "See also www.retrocmp.com/tools/tu58fs \n");
 	fprintf(ferr, "\n");
-	fprintf(ferr, "Command line summary:\n\n");
+	fprintf(ferr, "Command line options are processed strictly left-to-right. Summary:\n\n");
 	// getop must be intialized to print the syntax
 	getopt_help(&getopt_parser, stdout, arg_menu_linewidth, 10, PROGNAME);
-
+	fprintf(ferr, "\n");
 	fprintf(ferr, "\n");
 	fprintf(ferr, "Some examples:\n");
 	fprintf(ferr, "\n");
@@ -208,9 +172,16 @@ static void commandline_error() {
 }
 
 // parameter wrong for currently parsed option
-static void commandline_option_error() {
+static void commandline_option_error(char *errtext, ...) {
+	va_list args;
 	fprintf(ferr, "Error while parsing commandline option:\n");
-	fprintf(ferr, "  %s\nSyntax:  ", getopt_parser.curerrortext);
+	if (errtext) {
+		va_start(args, errtext);
+		vfprintf(ferr, errtext, args);
+		fprintf(ferr, "\nSyntax:  ");
+		va_end(args);
+	} else
+		fprintf(ferr, "  %s\nSyntax:  ", getopt_parser.curerrortext);
 	getopt_help_option(&getopt_parser, stdout, 96, 10);
 	exit(1);
 }
@@ -222,7 +193,7 @@ static void commandline_option_error() {
 static void parse_commandline(int argc, char **argv) {
 	char buff[1024];
 	int res;
-	int cur_autosizing = 0;
+	int cur_size = 0;
 	filesystem_type_t cur_filesystem_type = fsNONE;
 
 	// define commandline syntax
@@ -280,12 +251,14 @@ static void parse_commandline(int argc, char **argv) {
 			"Same as --xxdp, but RT11 file system is selected.",
 			NULL, NULL, NULL, NULL);
 
-	getopt_def(&getopt_parser, "s", "size", "std_or_auto", NULL, NULL,
-			"select standard 256KB image size, or auto sizing to max 32MB.\n"
-					"Valid for following --device or --shareddevice options.\n"
-					"When autosizing, the image is automatically enlarged on each block request\n"
-					"beyond the currentimage end. Patched DD.SYS drivers are needed then for\n"
-					"DEC operating systems.", "auto", "image is automatically enlarged.",
+	getopt_def(&getopt_parser, "s", "size", "size", NULL, NULL,
+			"Override size of TU58 imagefile. \n"
+					"<size> is number of bytes; suffix \"K\": * 1024, suffix \"M\": * K * K.\n"
+					"Smaller images are enlarged, greater are trunc'd if possible.\n"
+					"Devices and file system try to adapt.\n"
+					"For TU58 patched DD.SYS drivers are needed then for\n"
+					"DEC operating systems.", //
+			"10M", "image is 10 Megabytes = RL02 sized.",
 			NULL, NULL);
 
 	getopt_def(&getopt_parser, "d", "device", "unit,read_write_create,filename",
@@ -304,11 +277,11 @@ static void parse_commandline(int argc, char **argv) {
 			"1 w /home/user/tu58/data.dir", "fill image with files in a directory.",
 			NULL, NULL);
 
-	getopt_def(&getopt_parser, "st", "synctimeout", "seconds", NULL, "5",
+	getopt_def(&getopt_parser, "st", "synctimeout", "seconds", NULL, "3",
 			"An image changed by PDP is written to disk after this idle period.",
 			NULL, NULL, NULL, NULL);
 
-	getopt_def(&getopt_parser, "ot", "offlinetimeout", "seconds", NULL, "5",
+	getopt_def(&getopt_parser, "ot", "offlinetimeout", "seconds", NULL, "3",
 			"By hitting a number-key 0..7, the device goes offline for user control.\n"
 					"PDP traffic shall not be interrupted,  so \"offline\" state is entered delayed\n"
 					"after RS232 port is silent for this period.",
@@ -318,14 +291,14 @@ static void parse_commandline(int argc, char **argv) {
 			"A filesystem type must be specified (like -xxdp)\n"
 			"<device_type> can specify a different device geometry for the image,"
 			"allowed: %s", device_type_namelist());
-	getopt_def(&getopt_parser, "up", "unpack", "filename,dirname", "devicetype", NULL, buff,
+	getopt_def(&getopt_parser, "up", "unpack", "filename,dirname,devicetype", NULL, NULL, buff,
 	NULL, NULL, NULL, NULL);
 
 	sprintf(buff, "Read a binary disk/tape image, and extract files into directory\n"
 			"Read files from a directory and pack into binary disk/tape image\n"
 			"<device_type> can specify a different device geometry for the image,"
 			"allowed: %s", device_type_namelist());
-	getopt_def(&getopt_parser, "pk", "pack", "dirname,filename", "devicetype", NULL, buff,
+	getopt_def(&getopt_parser, "pk", "pack", "dirname,filename,devicetype", NULL, NULL, buff,
 	NULL, NULL, NULL, NULL);
 
 	/*
@@ -357,42 +330,48 @@ static void parse_commandline(int argc, char **argv) {
 			opt_vax = 1;
 		} else if (getopt_isoption(&getopt_parser, "synctimeout")) {
 			if (getopt_arg_i(&getopt_parser, "seconds", &opt_synctimeout_sec) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 		} else if (getopt_isoption(&getopt_parser, "offlinetimeout")) {
 			if (getopt_arg_i(&getopt_parser, "seconds", &opt_offlinetimeout_sec) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 		} else if (getopt_isoption(&getopt_parser, "background")) {
 			opt_background = 1;
 		} else if (getopt_isoption(&getopt_parser, "timing")) {
 			if (getopt_arg_i(&getopt_parser, "parameter", &opt_timing) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (opt_timing > 2)
-				commandline_option_error();
+				commandline_option_error("<timing> max 2");
 		} else if (getopt_isoption(&getopt_parser, "baudrate")) {
 			if (getopt_arg_i(&getopt_parser, "baudrate", &opt_speed) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 		} else if (getopt_isoption(&getopt_parser, "stopbits")) {
 			if (getopt_arg_i(&getopt_parser, "count", &opt_stopbits) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (opt_stopbits > 2)
-				commandline_option_error();
+				commandline_option_error("stopbit <count> max 2");
 		} else if (getopt_isoption(&getopt_parser, "port")) {
 			if (getopt_arg_s(&getopt_parser, "serial_device", opt_port, sizeof(opt_port)) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 		} else if (getopt_isoption(&getopt_parser, "xxdp")) {
 			cur_filesystem_type = fsXXDP;
 		} else if (getopt_isoption(&getopt_parser, "rt11")) {
 			cur_filesystem_type = fsRT11;
 		} else if (getopt_isoption(&getopt_parser, "size")) {
 			char buff[256];
-			if (getopt_arg_s(&getopt_parser, "std_or_auto", buff, sizeof(buff)) < 0)
-				commandline_option_error();
-			if (toupper(buff[0]) == 'S')
-				cur_autosizing = 0;
-			else if (toupper(buff[0]) == 'A')
-				cur_autosizing = 1;
-			else
-				commandline_option_error();
+			int i, scale = 1;
+			if (getopt_arg_s(&getopt_parser, "size", buff, sizeof(buff)) < 0)
+				commandline_option_error(NULL);
+			i = strlen(buff) - 1; // last char
+			if (toupper(buff[i]) == 'K') {
+				scale = 1024;
+				buff[i] = 0;
+			} else if (toupper(buff[i]) == 'M') {
+				scale = 1024 * 1024;
+				buff[i] = 0;
+			}
+			cur_size = strtol(buff, NULL, 0) * scale;
+			if (!cur_size)
+				commandline_option_error("<size> illegal");
 
 		} else if (getopt_isoption(&getopt_parser, "device")
 				|| getopt_isoption(&getopt_parser, "shareddevice")) {
@@ -402,13 +381,13 @@ static void parse_commandline(int argc, char **argv) {
 			int allowcreate;
 			char pathbuff[4096];
 			if (getopt_arg_i(&getopt_parser, "unit", &unit) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (unit < 0 || unit >= TU58_DEVICECOUNT)
-				commandline_option_error();
+				commandline_option_error("<unit> between 0 and %d", TU58_DEVICECOUNT);
 
 			if (getopt_arg_s(&getopt_parser, "read_write_create", pathbuff, sizeof(pathbuff))
 					< 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (toupper(pathbuff[0]) == 'R') {
 				readonly = 1;
 				allowcreate = 0;
@@ -419,58 +398,55 @@ static void parse_commandline(int argc, char **argv) {
 				readonly = 0;
 				allowcreate = 1;
 			} else
-				commandline_option_error();
+				commandline_option_error("<device> status must be of type R, W or C");
 			if (shared) {
 				if (getopt_arg_s(&getopt_parser, "directory", pathbuff, sizeof(pathbuff)) < 0)
-					commandline_option_error();
-				if (cur_filesystem_type == fsNONE) {
-					strcpy(getopt_parser.curerrortext, "no filesystem specified");
-					commandline_option_error();
-				}
+					commandline_option_error(NULL);
+				if (cur_filesystem_type == fsNONE)
+					commandline_option_error("No filesystem type specified.");
 			} else {
 				if (getopt_arg_s(&getopt_parser, "filename", pathbuff, sizeof(pathbuff)) < 0)
-					commandline_option_error();
+					commandline_option_error(NULL);
 			}
 
-			image_init(tu58image_get(unit), devTU58) ;
+			tu58image_create(unit, cur_size);
 			if (image_open(tu58image_get(unit), shared, readonly, allowcreate, pathbuff,
-					cur_filesystem_type, cur_autosizing) < 0)
-				commandline_option_error();
+					cur_filesystem_type) < 0)
+				commandline_option_error(NULL);
 			image_info(tu58image_get(unit));
 			image_count++;
 		} else if (getopt_isoption(&getopt_parser, "unpack")) {
 			char filename[4096];
 			char dirname[4096];
 			char device_type_s[256];
-			image_t img;
+			image_t *img;
 			filesystem_t *pdp_fs;
 			hostdir_t *hostdir;
 			device_type_t device_type;
 			if (getopt_arg_s(&getopt_parser, "filename", filename, sizeof(filename)) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (getopt_arg_s(&getopt_parser, "dirname", dirname, sizeof(dirname)) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (getopt_arg_s(&getopt_parser, "devicetype", device_type_s, sizeof(device_type_s))
 					< 0)
-				commandline_option_error();
-			if (strlen(device_type_s))
-				device_type = device_type_from_name(device_type_s);
-			else
-				device_type = devTU58;
-			if (cur_filesystem_type == fsNONE) {
-				strcpy(getopt_parser.curerrortext, "no filesystem specified");
-				commandline_option_error();
-			}
+				commandline_option_error(NULL);
+			device_type = device_type_from_name(device_type_s);
+
+			if (cur_filesystem_type == fsNONE)
+				commandline_option_error("No filesystem type specified.");
 			if (device_type == devNONE)
-				commandline_option_error();
+				commandline_option_error("No <devicetype>");
+			if (cur_size != 0 && device_type != devTU58)
+				commandline_option_error("--size specification allowed only for TU58 device.");
+
 			// read binary
-			image_init(&img, device_type);
+			img = image_create(device_type, 0xff, cur_size);
 			// autosizing, so no device info needed
-			if (image_open(&img, 0, 0, 0, filename, cur_filesystem_type, 1))
+			if (image_open(img, 0, 0, 0, filename, cur_filesystem_type))
 				fatal("image_open failed");
 
-			pdp_fs = filesystem_create(cur_filesystem_type, device_type, &img.data,
-					&img.data_size, img.changedblocks, 0);
+			pdp_fs = filesystem_create(cur_filesystem_type, device_type, img->data,
+					img->data_size, img->changedblocks);
 			if (filesystem_parse(pdp_fs))
 				fatal("filesystem_parse failed");
 			hostdir = hostdir_create(dirname, pdp_fs);
@@ -481,40 +457,36 @@ static void parse_commandline(int argc, char **argv) {
 			info("Files extracted from \"%s\" and written to \"%s\".", filename, dirname);
 			filesystem_destroy(pdp_fs);
 			hostdir_destroy(hostdir);
-			image_close(&img);
+			image_destroy(img);
 
 		} else if (getopt_isoption(&getopt_parser, "pack")) {
 			char filename[4096];
 			char dirname[4096];
 			char device_type_s[256];
-			image_t img;
+			image_t *img;
 			filesystem_t *pdp_fs;
 			hostdir_t *hostdir;
 			uint8_t *data = NULL; // buffer
 			device_type_t device_type;
 			unsigned data_size = 0;
 			if (getopt_arg_s(&getopt_parser, "filename", filename, sizeof(filename)) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (getopt_arg_s(&getopt_parser, "dirname", dirname, sizeof(dirname)) < 0)
-				commandline_option_error();
+				commandline_option_error(NULL);
 			if (getopt_arg_s(&getopt_parser, "devicetype", device_type_s, sizeof(device_type_s))
 					< 0)
-				commandline_option_error();
-			if (strlen(device_type_s))
-				device_type = device_type_from_name(device_type_s);
-			else
-				device_type = devTU58;
+				commandline_option_error(NULL);
+			device_type = device_type_from_name(device_type_s);
 			if (device_type == devNONE)
-				commandline_option_error();
-			if (cur_filesystem_type == fsNONE) {
-				strcpy(getopt_parser.curerrortext, "no filesystem specified");
-				commandline_option_error();
-			}
-			image_init(&img, device_type); // img is just a data buffer
-			//
+				commandline_option_error("No <devicetype>");
+			if (cur_filesystem_type == fsNONE)
+				commandline_option_error("No filesystem type specified.");
+			if (cur_size != 0 && device_type != devTU58)
+				commandline_option_error("--size specification allowed only for TU58 device.");
+			img = image_create(device_type, 0xff, cur_size); // img is just a data buffer
 
-			pdp_fs = filesystem_create(cur_filesystem_type, device_type, &img.data,	&img.data_size,
-					NULL, 1);
+			pdp_fs = filesystem_create(cur_filesystem_type, device_type, img->data,
+					img->data_size, NULL);
 			hostdir = hostdir_create(dirname, pdp_fs);
 			if (hostdir_prepare(hostdir, 0, 0, NULL)) // check
 				fatal("hostdir_prepare failed");
@@ -524,21 +496,22 @@ static void parse_commandline(int argc, char **argv) {
 				fatal("filesystem_render failed");
 			filesystem_print_dir(pdp_fs, ferr);
 			{
-				FILE *f = fopen(filename, "w+");
+				FILE *f = fopen(filename, "w");
 				if (!f)
 					fatal("opening file %s failed", filename);
-				fwrite(img.data, 1, img.data_size, f);
+				fwrite(img->data, 1, img->data_size, f);
 				fclose(f);
 			}
 			filesystem_destroy(pdp_fs);
 			hostdir_destroy(hostdir);
+			image_destroy(img);
 		}
 
 		res = getopt_next(&getopt_parser);
 	}
 	if (res == GETOPT_STATUS_MINARGCOUNT || res == GETOPT_STATUS_MAXARGCOUNT)
 		// known option, but wrong number of arguments
-		commandline_option_error();
+		commandline_option_error(NULL);
 	else if (res < 0)
 		commandline_error();
 }
@@ -546,6 +519,7 @@ static void parse_commandline(int argc, char **argv) {
 static pthread_t th_run;	// emulator thread id
 static pthread_t th_monitor;	// monitor thread id
 
+#ifdef DEVICEDIALOG
 // user wants to set a device offline for work
 static void device_dialog(image_t *img) {
 	char *tokens[256];
@@ -556,7 +530,7 @@ static void device_dialog(image_t *img) {
 	tu58_offline_request = 1;
 	info("TU58 goes offline after %d seconds of RS232 inactivity ...", opt_offlinetimeout_sec);
 	while (!tu58_offline)
-		delay_ms(100);
+	delay_ms(100);
 	info("TU58 now offline: \"all cartridges removed\".");
 
 	while (!ready) {
@@ -564,40 +538,40 @@ static void device_dialog(image_t *img) {
 				img->changed ? " (unsaved changes)" : "");
 		fprintf(ferr, "S - save image to disk%s\n", img->changed ? "" : " (though unchanged)");
 		if (img->shared)
-			fprintf(ferr, "L <file>- reload image from dir \"%s\"\n", img->host_fpath);
+		fprintf(ferr, "L <file>- reload image from dir \"%s\"\n", img->host_fpath);
 		else
-			fprintf(ferr, "L - load other image file (now \"%s\")\n", img->host_fpath);
+		fprintf(ferr, "L - load other image file (now \"%s\")\n", img->host_fpath);
 		fprintf(ferr, "C - continue server with all drives online (cartridges inserted).\n");
 		fprintf(ferr, ".	");
 
 		do {
 			n = inputline(tokens, 256);
 			delay_ms(100);
-		} while (n == 0);
+		}while (n == 0);
 
 		switch (toupper(tokens[0][0])) {
-		case 'S':
+			case 'S':
 			image_save(img);
 			break;
-		case 'L':
+			case 'L':
 			if (n != 2) {
 				error("Syntax: \"L filename\"");
 				break;
 			}
 			fpath = tokens[1];
 			if (img->shared)
-				;
+			;
 			else {
-				image_close(img);
+				// image_close(img);
 				// re-open with all params same, only other file
-				if (image_open(img, img->shared, img->readonly, 0, fpath,
-						img->dec_filesystem, img->autosizing) < 0)
-					error("Opening file \"%s\" failed", fpath);
+				if (image_open(img, img->shared, img->readonly, 0, fpath, img->dec_filesystem)
+						< 0)
+				error("Opening file \"%s\" failed", fpath);
 				else
-					info("Opened file \"%s\"", fpath);
+				info("Opened file \"%s\"", fpath);
 			}
 			break;
-		case 'C':
+			case 'C':
 			ready = 1;
 			break;
 
@@ -606,7 +580,7 @@ static void device_dialog(image_t *img) {
 	// go online
 	tu58_offline_request = 0;
 }
-
+#endif
 //
 // start tu58 drive emulation
 //
@@ -618,8 +592,11 @@ void run(void) {
 
 	// say hello
 	info("TU58 emulation start");
-	info(
-			"0-7 device dialog, R restart, S toggle send init, V toggle verbose, D toggle debug, Q quit");
+#ifdef DEVICEDIALOG
+	info("0-7 device dialog, R restart, S toggle send init, V toggle verbose, D toggle debug, Q quit");
+#else
+	info("R restart, S toggle send init, V toggle verbose, D toggle debug, Q quit");
+#endif
 
 	// run the emulator
 	if (pthread_create(&th_run, NULL, tu58_server, NULL))
@@ -635,15 +612,17 @@ void run(void) {
 
 		// get char from stdin (if available)
 		if ((c = toupper(conget())) > 0) {
+#ifdef DEVICEDIALOG
 			if (c >= '0' && c <= '7') {
 				image_t *img = NULL;
 				int unit = c - '0';
 				// number of open device?
 				if (IMAGE_UNIT_VALID(unit))
-					img = tu58image_get(unit);
+				img = tu58image_get(unit);
 				if (img && img->open)
-					device_dialog(img);
+				device_dialog(img);
 			}
+#endif
 			if (c == 'V') {
 				// toggle verbosity
 				opt_verbose ^= 1;
@@ -697,10 +676,9 @@ void run(void) {
 int main(int argc, char *argv[]) {
 	int i, n;
 
-	error_clear() ;
+	error_clear();
 	ferr = stdout; // ferr in Eclipse console not visible?
 
-	// init file structures
 	tu58images_init();
 
 	parse_commandline(argc, argv);

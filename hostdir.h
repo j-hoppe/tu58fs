@@ -100,7 +100,7 @@ int hostdir_from_pdp_fs(hostdir_t *_this);
 int hostdir_to_pdp_fs(hostdir_t *_this);
 
 
-int hostdir_load(hostdir_t *_this, int autosizing, int allowcreate, int *created) ;
+int hostdir_load(hostdir_t *_this, int allowcreate, int *created) ;
 int hostdir_save(hostdir_t *_this) ;
 int hostdir_sync(hostdir_t *_this) ;
 

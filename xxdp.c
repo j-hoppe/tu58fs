@@ -96,29 +96,26 @@ char * xxdp_fileorder[] = { "XXDPSM\\.SYS", "XXDPXM\\.SYS", "DRSSM\\.SYS", "DRSX
  * low level operators
  *************************************************************/
 
-// derefenced for daily use
-#define IMAGE_SIZE(_this) (*((_this)->image_size_ptr))
-#define IMAGE_DATA(_this) (*((_this)->image_data_ptr))
 // ptr to first byte of block
-#define IMAGE_BLOCKNR2PTR(_this, blocknr) (IMAGE_DATA(_this) + (XXDP_BLOCKSIZE *(blocknr)))
+#define IMAGE_BLOCKNR2PTR(_this, blocknr) ((_this)->image_data + (XXDP_BLOCKSIZE *(blocknr)))
 
 // fetch/write a 16bit word in the image
 // LSB first
 static uint16_t xxdp_image_get_word(xxdp_filesystem_t *_this, xxdp_blocknr_t blocknr,
 		uint8_t wordnr) {
 	uint32_t idx = XXDP_BLOCKSIZE * blocknr + (wordnr * 2);
-	assert(idx >= 0 && (idx+1) < IMAGE_SIZE(_this));
+	assert(idx >= 0 && (idx + 1) < (_this)->image_size);
 
-	return IMAGE_DATA(_this)[idx] | (IMAGE_DATA(_this)[idx + 1] << 8);
+	return _this->image_data[idx] | (_this->image_data[idx + 1] << 8);
 }
 
 static void xxdp_image_set_word(xxdp_filesystem_t *_this, xxdp_blocknr_t blocknr,
 		uint8_t wordnr, uint16_t val) {
 	uint32_t idx = XXDP_BLOCKSIZE * blocknr + (wordnr * 2);
-	assert(idx >= 0 && (idx+1) < IMAGE_SIZE(_this));
+	assert(idx >= 0 && (idx + 1) < _this->image_size);
 
-	IMAGE_DATA(_this)[idx] = val & 0xff;
-	IMAGE_DATA(_this)[idx + 1] = (val >> 8) & 0xff;
+	_this->image_data[idx] = val & 0xff;
+	_this->image_data[idx + 1] = (val >> 8) & 0xff;
 	//fprintf(stderr, "set 0x%x to 0x%x\n", idx, val) ;
 }
 
@@ -171,6 +168,55 @@ static int xxdp_bitmap_count(xxdp_filesystem_t *_this) {
 	return result;
 }
 
+// calculate new layout params in_this->radi from block_count
+// _this.radi must be already intialized for device,
+static int xxdp_filesystem_recalc_radi(xxdp_filesystem_t *_this) {
+	xxdp_radi_t *radi = &_this->radi;
+	xxdp_blocknr_t curblk;
+	int ufd_blocks_num;
+
+	radi->interleave = 1; // not used
+
+	// 1) BOOT
+	assert(radi->boot_block == 0); // always
+	curblk = 1; // always next free block.
+
+	// 2) MFD
+	radi->mfd1 = 1;
+	if (radi->mfd2 <= 0)
+		curblk++; // MFD1/2
+	else {
+		radi->mfd2 = 2;
+		curblk += 2; // MFD1 + MFD2
+	}
+
+	// 3) UFD
+	radi->ufd_block_1 = curblk;
+	// # of initial userdir entries
+	// from XXDP: 1 UFD block serves ca. 280 file blocks
+	// do not assign less than DEC table
+	ufd_blocks_num = NEEDED_BLOCKS(XXDP_BLOCKSIZE, _this->image_size) / 280;
+	if (ufd_blocks_num > radi->ufd_blocks_num)
+		radi->ufd_blocks_num = ufd_blocks_num ;
+	curblk += radi->ufd_blocks_num;
+
+	// 4) bitmap size: blocks/8 bytes
+	radi->bitmap_block_1 = curblk;
+	// one bitmap block has entires for 960 blocks
+	radi->bitmaps_num = NEEDED_BLOCKS(960, _this->blockcount);
+
+	curblk += radi->bitmaps_num;
+
+	// 5) monitor
+	radi->monitor_block = curblk;
+	// normal monitor size is 32 (39 if interleave 5)
+	curblk += 32;
+
+	radi->prealloc_blocks_num = curblk;
+
+	return ERROR_OK;
+}
+
 // set file->changed from the changed block map
 static void xxdp_filesystem_mark_files_as_changed(xxdp_filesystem_t *_this) {
 	int i, j;
@@ -178,10 +224,10 @@ static void xxdp_filesystem_mark_files_as_changed(xxdp_filesystem_t *_this) {
 		xxdp_file_t *f = _this->file[i];
 		f->changed = 0;
 		if (_this->image_changed_blocks)
-		for (j = 0; !f->changed && j < f->blocklist.count; j++) {
-			int blknr = f->blocklist.blocknr[j];
-			f->changed |= boolarray_bit_get(_this->image_changed_blocks, blknr);
-		}
+			for (j = 0; !f->changed && j < f->blocklist.count; j++) {
+				int blknr = f->blocklist.blocknr[j];
+				f->changed |= boolarray_bit_get(_this->image_changed_blocks, blknr);
+			}
 	}
 }
 
@@ -190,25 +236,41 @@ static void xxdp_filesystem_mark_files_as_changed(xxdp_filesystem_t *_this) {
  *************************************************************************/
 
 // before first use. Link with image data buffer
-xxdp_filesystem_t *xxdp_filesystem_create(device_type_t dec_device, uint8_t **image_data_ptr,
-		uint32_t *image_size_ptr, boolarray_t *changedblocks, int expandable) {
+xxdp_filesystem_t *xxdp_filesystem_create(device_type_t dec_device, uint8_t *image_data,
+		uint32_t image_size, boolarray_t *changedblocks) {
 	xxdp_filesystem_t *_this;
+	xxdp_radi_t *radi;
 	int i;
 	_this = malloc(sizeof(xxdp_filesystem_t));
+
+	_this->image_data = image_data;
+	_this->image_size = image_size;
+	_this->image_changed_blocks = changedblocks;
+
+	_this->blockcount = NEEDED_BLOCKS(XXDP_BLOCKSIZE, _this->image_size);
+
 	_this->dec_device = dec_device;
 	_this->device_info = (device_info_t*) search_tagged_array(device_info_table,
 			sizeof(device_info_t), _this->dec_device);
 	assert(_this->device_info);
-	// Search Random Access Device Information
-	_this->radi = (xxdp_radi_t*) search_tagged_array(xxdp_radi, sizeof(xxdp_radi_t),
-			_this->dec_device);
-	assert(_this->radi);
-	// save pointer to variables defining image buffer data
-	_this->image_data_ptr = image_data_ptr;
-	_this->image_size_ptr = image_size_ptr;
-	_this->image_changed_blocks = changedblocks;
 
-	_this->expandable = expandable;
+	// Search Random Access Device Information
+	radi = (xxdp_radi_t*) search_tagged_array(xxdp_radi, sizeof(xxdp_radi_t),
+			_this->dec_device);
+	assert(radi);
+	_this->radi = *radi; // copy
+
+	xxdp_filesystem_recalc_radi(_this) ; // test: does XXDP understand
+	// if image is enlarged, the precoded layout params of the device are not sufficient
+	// for the enlarged blockcount.
+	//see TU58: normally 1 prealloced block for 256KB tape
+	if (_this->radi.blocks_num < _this->blockcount) {
+		// calculate new layout params in _this->radi
+		if (xxdp_filesystem_recalc_radi(_this)) {
+			error_set(ERROR_FILESYSTEM_FORMAT, "Can not calculate new layout params");
+			return NULL;
+		}
+	}
 
 	// these are always there, static allocated
 	_this->bootblock = malloc(sizeof(xxdp_multiblock_t));
@@ -240,7 +302,6 @@ void xxdp_filesystem_destroy(xxdp_filesystem_t *_this) {
 }
 
 // free / clear all structures, set default values
-// save "expandable" flag for _add_file() operation
 void xxdp_filesystem_init(xxdp_filesystem_t *_this) {
 	int i;
 
@@ -250,28 +311,30 @@ void xxdp_filesystem_init(xxdp_filesystem_t *_this) {
 		_this->bitmap->used[i] = 0;
 
 	// set device params
-	_this->blockcount = _this->radi->blocks_num;
+	// _this->blockcount = _this->radi->blocks_num;
 	// trunc large devices, only 64K blocks addressable = 32MB
 	if (_this->blockcount > XXDP_MAX_BLOCKCOUNT)
 		_this->blockcount = XXDP_MAX_BLOCKCOUNT;
-	_this->preallocated_blockcount = _this->radi->prealloc_blocks_num;
-	_this->bootblock->blocknr = _this->radi->boot_block;
-	_this->bootblock->blockcount = 0; // may not exist
-	_this->monitor->blocknr = _this->radi->monitor_block;
-	_this->monitor->blockcount = 0; // may not exist
 
+	_this->preallocated_blockcount = _this->radi.prealloc_blocks_num;
+	_this->bootblock->blocknr = _this->radi.boot_block;
+	_this->bootblock->blockcount = 0; // may not exist
+	_this->monitor->blocknr = _this->radi.monitor_block;
+
+	_this->interleave = _this->radi.interleave;
+	_this->monitor->blockcount = 0; // may not exist
 	_this->mfd_blocklist->count = 0;
-	_this->interleave = _this->radi->interleave;
+
 	// which sort of MFD?
-	if (_this->radi->mfd2 >= 0) {
+	if (_this->radi.mfd2 >= 0) {
 		_this->mfd_variety = 1; // 2 blocks
 		_this->mfd_blocklist->count = 2;
-		_this->mfd_blocklist->blocknr[0] = _this->radi->mfd1;
-		_this->mfd_blocklist->blocknr[1] = _this->radi->mfd2;
+		_this->mfd_blocklist->blocknr[0] = _this->radi.mfd1;
+		_this->mfd_blocklist->blocknr[1] = _this->radi.mfd2;
 	} else {
 		_this->mfd_variety = 2; // single block format
 		_this->mfd_blocklist->count = 1;
-		_this->mfd_blocklist->blocknr[0] = _this->radi->mfd1;
+		_this->mfd_blocklist->blocknr[0] = _this->radi.mfd1;
 	}
 	_this->ufd_blocklist->count = 0;
 	if (_this->bootblock->data)
@@ -303,7 +366,7 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 	int n;
 	xxdp_blocknr_t blknr, mfdblknr;
 
-	xxdp_blocklist_get(_this, _this->mfd_blocklist, _this->radi->mfd1);
+	xxdp_blocklist_get(_this, _this->mfd_blocklist, _this->radi.mfd1);
 	if (_this->mfd_blocklist->count == 2) {
 		// 2 blocks. first predefined, fetch 2nd from image
 		// Prefer MFD data over linked list scan, why?
@@ -312,7 +375,7 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 					_this->mfd_variety);
 		/*
 		 _this->mfd_blocklist->count = 2;
-		 _this->mfd_blocklist->blocknr[0] = _this->radi->mfd1;
+		 _this->mfd_blocklist->blocknr[0] = _this->radi.mfd1;
 		 _this->mfd_blocklist->blocknr[1] = xxdp_image_get_word(_this,
 		 _this->mfd_blocklist->blocknr[0], 0);
 		 */
@@ -372,19 +435,19 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 					_this->blockcount, n);
 
 		n = _this->preallocated_blockcount = xxdp_image_get_word(_this, mfdblknr, 8);
-		if (n != _this->radi->prealloc_blocks_num)
+		if (n != _this->radi.prealloc_blocks_num)
 			fprintf(ferr, "Device preallocated blocks are %u in RADI, but %d in MFD1/2\n",
-					_this->radi->prealloc_blocks_num, n);
+					_this->radi.prealloc_blocks_num, n);
 
 		n = _this->interleave = xxdp_image_get_word(_this, mfdblknr, 9);
-		if (n != _this->radi->interleave)
+		if (n != _this->radi.interleave)
 			fprintf(ferr, "Device interleave is %u in RADI, but %d in MFD1/2\n",
-					_this->radi->interleave, n);
+					_this->radi.interleave, n);
 
 		n = _this->monitor->blocknr = xxdp_image_get_word(_this, mfdblknr, 11);
-		if (n != _this->radi->monitor_block)
+		if (n != _this->radi.monitor_block)
 			fprintf(ferr, "Monitor core start is %u in RADI, but %d in MFD1/2\n",
-					_this->radi->monitor_block, n);
+					_this->radi.monitor_block, n);
 		_this->monitor->blockcount = _this->preallocated_blockcount - _this->monitor->blocknr;
 
 		fprintf(ferr, "Warning: position of bad block file not yet evaluated\n");
@@ -461,6 +524,7 @@ static int parse_ufd(xxdp_filesystem_t *_this) {
 			f->data = NULL; //
 			f->filnam[0] = 0;
 			f->changed = 0;
+			f->fixed = 0;
 			// filnam: 6 chars
 			strcat(f->filnam, rad50_decode(w));
 			w = xxdp_image_get_word(_this, blknr, file_entry_start_wordnr + 1);
@@ -572,11 +636,11 @@ static int xxdp_filesystem_layout_test(xxdp_filesystem_t *_this, int data_size) 
 	// It holds all file data and excess UFD blocks
 	// the first "ufd_blocks_num (from RADI) fit in preallocated space
 	available_blocks = _this->blockcount - _this->preallocated_blockcount;
-	if (ufd_blocks_needed > _this->radi->ufd_blocks_num)
-		data_blocks_needed += ufd_blocks_needed - _this->radi->ufd_blocks_num;
+	if (ufd_blocks_needed > _this->radi.ufd_blocks_num)
+		data_blocks_needed += ufd_blocks_needed - _this->radi.ufd_blocks_num;
 	if (data_blocks_needed > available_blocks)
-		return ERROR_FILESYSTEM_OVERFLOW;
-	return 0; // fit
+		return error_set(ERROR_FILESYSTEM_OVERFLOW, "xxdp_filesystem_layout_test");
+	return ERROR_OK; // fit
 }
 
 // calculate blocklists for monitor, bitmap,mfd, ufd and files
@@ -585,9 +649,6 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	int i, j, n;
 	int overflow;
 	xxdp_blocknr_t blknr;
-
-	// blockcount may have been enlarged by previous run
-	_this->blockcount = _this->radi->blocks_num;
 
 	// mark preallocated blocks in bitmap
 	// this covers boot, monitor, bitmap, mfd and default sized ufd
@@ -598,7 +659,7 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	// BOOT
 	if (_this->bootblock->data_size) {
 		_this->bootblock->blockcount = 1;
-		blknr = _this->radi->boot_block; // set start
+		blknr = _this->radi.boot_block; // set start
 		_this->bootblock->blocknr = blknr;
 	} else
 		_this->bootblock->blockcount = 0;
@@ -606,15 +667,15 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	// MONITOR
 	if (_this->monitor->data_size) {
 		n = NEEDED_BLOCKS(XXDP_BLOCKSIZE, _this->monitor->data_size);
-		blknr = _this->radi->monitor_block; // set start
+		blknr = _this->radi.monitor_block; // set start
 		_this->monitor->blocknr = blknr;
 		_this->monitor->blockcount = n;
 	} else
 		_this->monitor->blockcount = 0;
 
 	// BITMAP
-	n = _this->radi->bitmaps_num;
-	blknr = _this->radi->bitmap_block_1; // set start
+	n = _this->radi.bitmaps_num;
+	blknr = _this->radi.bitmap_block_1; // set start
 	for (i = 0; i < n; i++) { // enumerate sequential
 		_this->bitmap->used[blknr] = 1;
 		_this->bitmap->blocklist.blocknr[i] = blknr++;
@@ -624,14 +685,14 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	// MFD
 	if (_this->mfd_variety == 1) {
 		_this->mfd_blocklist->count = 2;
-		_this->mfd_blocklist->blocknr[0] = _this->radi->mfd1;
-		_this->mfd_blocklist->blocknr[1] = _this->radi->mfd2;
-		_this->bitmap->used[_this->radi->mfd1] = 1;
-		_this->bitmap->used[_this->radi->mfd2] = 1;
+		_this->mfd_blocklist->blocknr[0] = _this->radi.mfd1;
+		_this->mfd_blocklist->blocknr[1] = _this->radi.mfd2;
+		_this->bitmap->used[_this->radi.mfd1] = 1;
+		_this->bitmap->used[_this->radi.mfd2] = 1;
 	} else if (_this->mfd_variety == 2) {
 		_this->mfd_blocklist->count = 1;
-		_this->mfd_blocklist->blocknr[0] = _this->radi->mfd1;
-		_this->bitmap->used[_this->radi->mfd1] = 1;
+		_this->mfd_blocklist->blocknr[0] = _this->radi.mfd1;
+		_this->bitmap->used[_this->radi.mfd1] = 1;
 	} else {
 		fprintf(ferr, "MFD variety must be 1 or 2\n");
 		exit(1);
@@ -639,14 +700,14 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	// UFD
 	// starts in preallocated area, may extend into freespace
 	n = NEEDED_BLOCKS(XXDP_UFD_ENTRIES_PER_BLOCK, _this->file_count);
-	if (n < _this->radi->ufd_blocks_num)
-		n = _this->radi->ufd_blocks_num; // RADI defines minimum
+	if (n < _this->radi.ufd_blocks_num)
+		n = _this->radi.ufd_blocks_num; // RADI defines minimum
 	_this->ufd_blocklist->count = n;
 	// last UFD half filled
-	blknr = _this->radi->ufd_block_1;	// start
+	blknr = _this->radi.ufd_block_1;	// start
 	i = 0;
 	// 1) fill UFD into preallocated space
-	while (i < n && i < _this->radi->ufd_blocks_num) {
+	while (i < n && i < _this->radi.ufd_blocks_num) {
 		_this->bitmap->used[blknr] = 1;
 		_this->ufd_blocklist->blocknr[i++] = blknr++;
 	}
@@ -693,7 +754,7 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 	// expand file system size if needed.
 	// later check wether physical image can be expanded.
 	if (blknr >= _this->blockcount)
-		_this->blockcount = blknr;
+		return ERROR_FILESYSTEM_OVERFLOW;
 
 	return ERROR_OK;
 }
@@ -803,7 +864,7 @@ static void render_ufd(xxdp_filesystem_t *_this) {
 	//
 	for (i = 0; i < _this->file_count; i++) {
 		char buff[80];
-		xxdp_blocknr_t ufd_blknr = _this->radi->ufd_block_1 + (i / XXDP_UFD_ENTRIES_PER_BLOCK);
+		xxdp_blocknr_t ufd_blknr = _this->radi.ufd_block_1 + (i / XXDP_UFD_ENTRIES_PER_BLOCK);
 		// word nr of cur entry in cur block. skip link word.
 		int ufd_word_offset = 1 + (i % XXDP_UFD_ENTRIES_PER_BLOCK) * XXDP_UFD_ENTRY_WORDCOUNT;
 		xxdp_file_t *f = _this->file[i];
@@ -869,23 +930,16 @@ int xxdp_filesystem_render(xxdp_filesystem_t *_this) {
 
 	// calc blocklists and sizes
 	if (xxdp_filesystem_layout(_this))
-		return error_code;
+		return error_code; // overflow
 
-	// if autosize allowed: enlarge image
-	if (*(_this->image_data_ptr) == NULL) // correct size if no buffer at all
-		*(_this->image_size_ptr) = 0;
-	if (needed_size > *(_this->image_size_ptr)) {
+	if (needed_size > _this->image_size)
 		// more bytes needed than image provides. Expand?
-		if (!_this->expandable)
-			return error_set(ERROR_FILESYSTEM_OVERFLOW,
-					"Image only %d bytes large, filesystem needs %d *%d = %d.",
-					*(_this->image_size_ptr), _this->blockcount, XXDP_BLOCKSIZE, needed_size);
-		// enlarge, and update user pointers
-		*(_this->image_data_ptr) = realloc(*(_this->image_data_ptr), needed_size);
-		*(_this->image_size_ptr) = needed_size;
-	}
+		return error_set(ERROR_FILESYSTEM_OVERFLOW,
+				"Image only %d bytes large, filesystem needs %d *%d = %d.", _this->image_size,
+				_this->blockcount, XXDP_BLOCKSIZE, needed_size);
+
 	// format media, all 0's
-	memset(*(_this->image_data_ptr), 0, *(_this->image_size_ptr));
+	memset(_this->image_data, 0, _this->image_size);
 
 	render_multiblock(_this, _this->bootblock);
 	render_multiblock(_this, _this->monitor);
@@ -905,30 +959,90 @@ int xxdp_filesystem_render(xxdp_filesystem_t *_this) {
  * add / get files in logical data structure
  **************************************************************/
 
-// special:
+// fill the pseudo file with textual volume information
+// it never changes
+static void xxdp_filesystem_render_volumeinfo(xxdp_filesystem_t *_this, xxdp_file_t *f) {
+	// static stream instance as buffer for name=value text
+	static uint8_t text_buffer[4096 + XXDP_MAX_FILES_PER_IMAGE * 80];// listing for all files
+	char line[1024];
+	int i;
+	time_t t = time(NULL);
+	struct tm tm = *localtime(&t);
+
+	text_buffer[0] = 0;
+	sprintf(line, "# %s.%s - info about XXDP volume on %s device.\n", f->filnam, f->ext,
+			_this->device_info->device_name);
+	strcat(text_buffer, line);
+	sprintf(line, "# Produced by TU58FS at %d-%d-%d %d:%d:%d\n", tm.tm_year + 1900,
+			tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+	strcat(text_buffer, line);
+
+	sprintf(line, "\n# Blocks on device\nblockcount=%d\n", _this->blockcount);
+	strcat(text_buffer, line);
+	sprintf(line, "# But XXDP doc says %d\n", _this->radi.blocks_num);
+	strcat(text_buffer, line);
+
+	sprintf(line, "prealloc_blocks_num=%d\n", _this->radi.prealloc_blocks_num);
+	strcat(text_buffer, line);
+	sprintf(line, "interleave=%d\n", _this->radi.interleave);
+	strcat(text_buffer, line);
+	sprintf(line, "boot_block=%d\n", _this->radi.boot_block);
+	strcat(text_buffer, line);
+	sprintf(line, "monitor_block=%d\n", _this->radi.monitor_block);
+	strcat(text_buffer, line);
+
+	sprintf(line, "\n# Master File Directory %s\n", _this->radi.mfd2 < 0 ? "Var2: MFD1/2": "Var1: MFD1+MFD2");
+	strcat(text_buffer, line);
+	sprintf(line, "mfd1=%d\n", _this->radi.mfd1);
+	strcat(text_buffer, line);
+	if (_this->radi.mfd2 > 0) {
+		sprintf(line, "mfd2=%d\n", _this->radi.mfd2);
+		strcat(text_buffer, line);
+	}
+	sprintf(line, "\n# Bitmap of used blocks:\nbitmap_block_1=%d\n", _this->radi.bitmap_block_1);
+	strcat(text_buffer, line);
+	sprintf(line, "bitmaps_num=%d\n", _this->radi.bitmaps_num);
+	strcat(text_buffer, line);
+
+	sprintf(line, "\n# User File Directory:\nufd_block_1=%d\n", _this->radi.ufd_block_1);
+	strcat(text_buffer, line);
+	sprintf(line, "ufd_blocks_num=%d\n", _this->radi.ufd_blocks_num);
+	strcat(text_buffer, line);
+
+	for (i = 0; i < _this->file_count; i++) {
+		xxdp_file_t *f = _this->file[i];
+		sprintf(line, "\n# File %2d \"%s.%s\".", i, f->filnam, f->ext);
+		strcat(text_buffer, line);
+		sprintf(line, " Data %d = 0x%X bytes, start block %d @ 0x%X.", f->data_size,
+				f->data_size, f->blocklist.blocknr[0], f->blocklist.blocknr[0] * XXDP_BLOCKSIZE);
+		strcat(text_buffer, line);
+	}
+	strcat(text_buffer, "\n");
+
+	f->data = text_buffer ;
+	f->data_size = strlen(text_buffer) ;
+}
+
+// special indexes:
 // -1: bootblock
 // -2: monitor
+// -3: volume information text file
 // else regular file
 // fname: filnam.ext
 int xxdp_filesystem_file_add(xxdp_filesystem_t *_this, char *hostfname, time_t hostfdate,
 		uint8_t *data, uint32_t data_size) {
-	int special;
 	char buff1[80], buff2[80];
-	if (!strcasecmp(hostfname, XXDP_BOOTBLOCK_FILNAM "." XXDP_BOOTBLOCK_EXT))
-		special = -1;
-	else if (!strcasecmp(hostfname, XXDP_MONITOR_FILNAM "." XXDP_MONITOR_EXT))
-		special = -2;
-	else
-		special = 0;
 
-	if (special == -1) {
+	if (!strcasecmp(hostfname, XXDP_VOLUMEINFO_FILNAM "." XXDP_VOLUMEINFO_EXT)) {
+		// evaluate parameter file ?
+	} else if (!strcasecmp(hostfname, XXDP_BOOTBLOCK_FILNAM "." XXDP_BOOTBLOCK_EXT)) {
 		if (data_size != XXDP_BLOCKSIZE)
 			return error_set(ERROR_FILESYSTEM_FORMAT, "Boot block not %d bytes\n",
 			XXDP_BLOCKSIZE);
 		_this->bootblock->data_size = data_size;
 		_this->bootblock->data = realloc(_this->bootblock->data, data_size);
 		memcpy(_this->bootblock->data, data, data_size);
-	} else if (special == -2) {
+	} else if (!strcasecmp(hostfname, XXDP_MONITOR_FILNAM "." XXDP_MONITOR_EXT)) {
 		// assume max len of monitor
 		int n = XXDP_BLOCKSIZE * (_this->preallocated_blockcount - _this->monitor->blocknr + 1);
 		if (data_size > n)
@@ -980,17 +1094,19 @@ int xxdp_filesystem_file_add(xxdp_filesystem_t *_this, char *hostfname, time_t h
 }
 
 // access files, bootblock and monitor in an uniform way
+// -3 = volume info, -2 = monitor, -1 = boot block
 // bootblock or monitor are NULL, if empty
 xxdp_file_t *xxdp_filesystem_file_get(xxdp_filesystem_t *_this, int fileidx) {
 	xxdp_file_t *result = NULL;
-	static xxdp_file_t buff[2]; // buffers for monitor and bootblock
-	if (fileidx == -1 && !is_memset(_this->bootblock->data, 0, _this->bootblock->data_size)) {
+	static xxdp_file_t buff[3]; // buffers for monitor and bootblock
+	if (fileidx == -3) {
 		result = &buff[0];
-		strcpy(result->filnam, XXDP_BOOTBLOCK_FILNAM);
-		strcpy(result->ext, XXDP_BOOTBLOCK_EXT);
-		result->data = _this->bootblock->data;
-		result->data_size = _this->bootblock->data_size;
+		strcpy(result->filnam, XXDP_VOLUMEINFO_FILNAM);
+		strcpy(result->ext, XXDP_VOLUMEINFO_EXT);
+		result->fixed = 1; // can not be deleted on shared dir
+		xxdp_filesystem_render_volumeinfo(_this, result);
 		memset(&result->date, 0, sizeof(result->date));
+		result->fixed = 1;
 	} else if (fileidx == -2
 			&& !is_memset(_this->monitor->data, 0, _this->monitor->data_size)) {
 		result = &buff[1];
@@ -999,6 +1115,16 @@ xxdp_file_t *xxdp_filesystem_file_get(xxdp_filesystem_t *_this, int fileidx) {
 		result->data = _this->monitor->data;
 		result->data_size = _this->monitor->data_size;
 		memset(&result->date, 0, sizeof(result->date));
+		result->fixed = 0;
+	} else if (fileidx == -1
+			&& !is_memset(_this->bootblock->data, 0, _this->bootblock->data_size)) {
+		result = &buff[0];
+		strcpy(result->filnam, XXDP_BOOTBLOCK_FILNAM);
+		strcpy(result->ext, XXDP_BOOTBLOCK_EXT);
+		result->data = _this->bootblock->data;
+		result->data_size = _this->bootblock->data_size;
+		memset(&result->date, 0, sizeof(result->date));
+		result->fixed = 0;
 	} else if (fileidx >= 0 && fileidx < _this->file_count) {
 		result = _this->file[fileidx];
 	} else

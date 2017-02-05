@@ -98,8 +98,8 @@ typedef struct {
 
 char *filesystem_name(filesystem_type_t type) ;
 
-filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type, uint8_t **image_data_ptr, uint32_t *image_data_size_ptr,
-		boolarray_t *changedblocks,	int expandable) ;
+filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type, uint8_t *image_data, uint32_t image_data_size,
+		boolarray_t *changedblocks) ;
 
 void filesystem_destroy(filesystem_t *_this) ;
 

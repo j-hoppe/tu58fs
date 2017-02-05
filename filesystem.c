@@ -57,8 +57,7 @@ char *filesystem_name(filesystem_type_t type) {
 }
 
 filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type,
-		uint8_t **image_data_ptr, uint32_t *image_data_size_ptr, boolarray_t *changedblocks,
-		int expandable) {
+		uint8_t *image_data, uint32_t image_data_size, boolarray_t *changedblocks) {
 	filesystem_t *_this;
 	_this = malloc(sizeof(filesystem_t));
 	_this->type = type;
@@ -67,13 +66,13 @@ filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_typ
 
 	switch (type) {
 	case fsXXDP:
-		_this->xxdp = xxdp_filesystem_create(device_type, image_data_ptr, image_data_size_ptr,
-				changedblocks, expandable);
+		_this->xxdp = xxdp_filesystem_create(device_type, image_data, image_data_size,
+				changedblocks);
 		_this->file_count = &(_this->xxdp->file_count);
 		break;
 	case fsRT11:
-		_this->rt11 = rt11_filesystem_create(device_type, image_data_ptr, image_data_size_ptr,
-				changedblocks, expandable);
+		_this->rt11 = rt11_filesystem_create(device_type, image_data, image_data_size,
+				changedblocks);
 		_this->file_count = &(_this->rt11->file_count);
 		break;
 	default:
@@ -169,7 +168,7 @@ file_t *filesystem_file_get(filesystem_t *_this, int fileidx) {
 		result.stream[1].valid = 0;
 		result.stream[2].valid = 0;
 		result.date = f->date;
-		result.fixed = 0 ;
+		result.fixed = 0;
 	}
 		break;
 	case fsRT11: {
@@ -201,7 +200,7 @@ file_t *filesystem_file_get(filesystem_t *_this, int fileidx) {
 			result.stream[2].valid = 1;
 		}
 		result.date = f->date;
-		result.fixed = f->fixed ;
+		result.fixed = f->fixed;
 
 		if (f->filnam)
 			strcpy(result.filnam, f->filnam);

@@ -56,7 +56,7 @@
 // own limits
 #define	RT11_MAX_FILES_PER_IMAGE 1000
 
-// pseudo file for volumn parameters
+// pseudo file for volume parameters
 #define RT11_VOLUMEINFO_FILNAM	"$VOLUM" // valid RT11 file name
 #define RT11_VOLUMEINFO_EXT	"INF"
 // pseudo file for boot sector
@@ -109,10 +109,8 @@ typedef struct {
 
 typedef struct {
 	// link to image data and size
-	// pointer reference outside locations,
-	// which may be change if image-resize is necessary
-	 uint8_t **image_data_ptr; // ptr to uint8_t data[]
-	uint32_t *image_size_ptr; // ptr to size of data[]
+	 uint8_t *image_data;
+	uint32_t image_size;
 	boolarray_t *image_changed_blocks; // blocks marked as "changed". may be NULL
 
 	// the device this filesystem resides on
@@ -148,12 +146,13 @@ typedef struct {
 	 fsDataBlocks    = 0                 # Number of data blocks for files
 	 */
 
-	int expandable; // boolean: blockcount may be increased in _add_file()
 	int blockcount; // usable blocks in filesystem.
 
 	rt11_stream_t *nobootblock; // fix bootblock for no bootable volumes
 	rt11_stream_t *bootblock; // block 0, if defined
 	rt11_stream_t *monitor; // whatever is in block 2..5
+
+	int struct_changed ; // directories or homeblock changed
 
 	int file_count;
 	rt11_file_t *file[RT11_MAX_FILES_PER_IMAGE];
@@ -171,8 +170,8 @@ extern char * rt11_fileorder[];
 // extern xxdp_radi_t xxdp_radi[];
 #endif
 
-rt11_filesystem_t *rt11_filesystem_create(device_type_t dec_device, uint8_t **image_data_ptr,
-		uint32_t *image_size_ptr, boolarray_t *changedblocks, int expandable);
+rt11_filesystem_t *rt11_filesystem_create(device_type_t dec_device, uint8_t *image_data,
+		uint32_t image_size, boolarray_t *changedblocks);
 
 void rt11_filesystem_destroy(rt11_filesystem_t *_this);
 

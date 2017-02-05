@@ -46,6 +46,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <time.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include "utils.h"	// own
 
@@ -83,6 +84,23 @@ int is_memset(void *ptr, uint8_t val, uint32_t size) {
 		if (*(uint8_t *) ptr != val)
 			return 0;
 	return 1;
+}
+
+// are all bytes in file behind "offset" set to "val" ?
+int is_fileset(char *fpath, uint8_t val, uint32_t offset) {
+	int result;
+	FILE *f;
+	uint8_t b;
+	f = fopen(fpath, "r");
+	fseek(f, offset, SEEK_SET);
+	result = 1;
+	// inefficient byte loop
+	while (result && fread(&b, sizeof(b), 1, f) == 1)
+		if (b != val)
+			result = 0;
+
+	fclose(f);
+	return result;
 }
 
 // read a string and separate into tokens
@@ -127,12 +145,11 @@ char *strtrim(char *txt) {
 char *strrpad(char *txt, int len, char c) {
 	static char buff[1024];
 	int i = strlen(txt);
-	memset(buff, c, len) ; // init buffer with base pattern
-	strncpy(buff, txt, strlen(txt)) ;
-	buff[len] = 0 ;
-	return buff ;
+	memset(buff, c, len); // init buffer with base pattern
+	strncpy(buff, txt, strlen(txt));
+	buff[len] = 0;
+	return buff;
 }
-
 
 // encode char into a 0..39 value
 // " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789"
@@ -205,14 +222,25 @@ uint16_t rad50_encode(char *s) {
 	return result;
 }
 
+// 1, if path/filename exists
+int file_exists(char *path, char *filename) {
+	char buffer[4096];
+	struct stat st;
+	if (path && strlen(path))
+		sprintf(buffer, "%s/%s", path, filename);
+	else
+		strcpy(buffer, filename);
+	return !stat(buffer, &st);
+
+}
 
 // clips off the last exension in filename
-	// if "truncate": file is truncated, extension is returned
+// if "truncate": file is truncated, extension is returned
 char *extract_extension(char *filename, int truncate) {
-	char	*dotpos ;
-	char *s ;
+	char *dotpos;
+	char *s;
 
-		// find the last "."
+	// find the last "."
 	dotpos = NULL;
 	for (s = filename; *s; s++)
 		if (*s == '.')
@@ -221,11 +249,10 @@ char *extract_extension(char *filename, int truncate) {
 	if (dotpos) {
 		if (truncate)
 			*dotpos = 0; // clip off "." and extension
-		return dotpos+1 ;
+		return dotpos + 1;
 	} else
-		return NULL ;
+		return NULL;
 }
-
 
 int leapyear(int y) {
 	return ((y % 4 == 0) && (y % 100 != 0)) || (y % 400 == 0);

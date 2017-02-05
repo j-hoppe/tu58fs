@@ -50,96 +50,95 @@ device_info_t device_info_table[] = {
     	.device_type = devTU58, // tag
         .device_name = "TU58",
         .mnemonic = "DD",
-		.block_count = 512
-    },
-/*
-    {
-        // oversized TU58 tape with 4MB capacity
-    	.device_type = devTU58M4, // tag
-        .device_name = "TU58M4",
-        .mnemonic = "DD",
-		.block_count = 8192
-    },
-    {
-        // oversized TU58 tape with max capacity of 32MB
-    	.device_type = devTU58M32, // tag
-        .device_name = "TU58M32",
-        .mnemonic = "DD",
-		.block_count = 65535
+		.block_count = 512,
+		.max_block_count = 0xffff
     },
     {
     	.device_type = devRP0456 ,
         .device_name = "RP04,5,6",
         .mnemonic = "DB",
-        .block_count = 48000 // XXDP
+        .block_count = 48000, // XXDP
+		.max_block_count = 48000
     },
     {
     	.device_type = devRK035 ,
         .device_name = "RK03,5",
         .mnemonic = "DK",
-        .block_count = 4800 // XXDP
+        .block_count = 4800, // XXDP
+    	.max_block_count = 4800 // XXDP
     },
-*/
     {
     	.device_type = devRL01 ,
         .device_name = "RL01",
         .mnemonic = "DL",
-        .block_count = 10225 // pyRT RT11
+        .block_count = 10240,
+		.max_block_count = 10240
     },
     {
     	.device_type = devRL02 ,
         .device_name = "RL02",
         .mnemonic = "DL",
-        .block_count = 20465 // pyRT11 RT11
+        .block_count = 20480,
+		.max_block_count = 20480
     },
-/*
     {
     	.device_type = devRK067 ,
         .device_name = "RK06,7",
         .mnemonic = "DM",
-        .block_count = 27104 // XXDP
+        .block_count = 27104, // XXDP
+    	.max_block_count = 27104
     },
+/*
     {
     	.device_type = devRP023 ,
         .device_name = "RP02,3",
         .mnemonic = "DP",
-        .block_count = -1 // unknown, bad fiche
+        .block_count = -1, // unknown, bad fiche
+		.max_block_count = -1
     },
+*/
     {
     	.device_type = devRM ,
         .device_name = "RM03",
         .mnemonic = "DR",
-        .block_count = 48000 // XXDP
+        .block_count = 48000, // XXDP
+		.max_block_count = 48000
     },
     {
     	.device_type = devRS ,
         .device_name = "RS03,4",
         .mnemonic = "DS",
-        .block_count = 989 // XXDP
+        .block_count = 989, // XXDP
+		.max_block_count = 989
     },
     {
     	.device_type = devTU56 ,
         .device_name = "TU56,DECTAPE",
         .mnemonic = "DT",
-        .block_count = 576 // XXDP
+        .block_count = 576, // XXDP
+		.max_block_count = 576
     },
     {
     	.device_type = devRX01 ,
         .device_name = "RX01",
         .mnemonic = "DX",
-        .block_count = 494 // XXDP
+        .block_count = 494, // XXDP
+		.max_block_count = 494
     },
     {
     	.device_type = devRX02 ,
         .device_name = "RX02",
         .mnemonic = "DY",
-        .block_count = 988 // XXDP, pyRT11
+        .block_count = 988, // XXDP, pyRT11
+		.block_count = 988
     },
+/*
     {
     	.device_type = devRF ,
         .device_name = "RF11",
         .mnemonic = "RF",
-        .block_count = -1 // unknown
+        .block_count = -1, // unknown
+		.max_block_count = -1
     },
 */
     {

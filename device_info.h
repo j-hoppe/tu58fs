@@ -42,8 +42,6 @@
 typedef enum {
 	devNONE = 0,
 	devTU58,
-	devTU58M4,
-	devTU58M32,
 	devRP0456,
 	devRK035,
 	devRL01,
@@ -63,6 +61,7 @@ typedef struct {
 	char *device_name;
 	char *mnemonic;
 	int block_count; // total number of usable blocks on device, without bad sector area
+	int max_block_count; // if device has variable size
 } device_info_t;
 
 

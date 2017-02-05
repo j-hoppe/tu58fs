@@ -38,6 +38,8 @@
  */
 #define _XXDP_RADI_C_
 
+#include <stdlib.h>
+
 #include "device_info.h"
 #include "xxdp_radi.h"
 
@@ -218,7 +220,4 @@ xxdp_radi_t xxdp_radi[] = {
     	.device_type = 0 // end marker
     }
 } ;
-
-
-
 

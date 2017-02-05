@@ -1,4 +1,4 @@
-/* error.c: global error handling
+/* error.c: global error & info handling
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -36,6 +36,7 @@
  *  29-Jan-2017  JH  created
  */
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -77,4 +78,48 @@ int error_set(int code, char *fmt, ...) {
 	}
 	return error_code;
 }
+
+
+//
+// print an info message and return
+//
+void info(char *fmt, ...) {
+	va_list args;
+	if (!opt_background) {
+		va_start(args, fmt);
+		fprintf(ferr, "info: ");
+		vfprintf(ferr, fmt, args);
+		fprintf(ferr, "\n");
+		va_end(args);
+	}
+	return;
+}
+
+//
+// print an error message and return
+//
+void error(char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	fprintf(ferr, "ERROR: ");
+	vfprintf(ferr, fmt, args);
+	fprintf(ferr, "\n");
+	va_end(args);
+	return;
+}
+
+//
+// print an error message and die
+//
+void fatal(char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	fprintf(ferr, "FATAL: ");
+	vfprintf(ferr, fmt, args);
+	fprintf(ferr, "\n");
+	va_end(args);
+	exit(EXIT_FAILURE);
+}
+
+
 

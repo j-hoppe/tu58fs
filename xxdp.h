@@ -63,6 +63,9 @@
 #define	XXDP_MAX_FILES_PER_IMAGE 1000
 #define XXDP_MAX_BLOCKS_PER_LIST       1024  //  own: max filesize: * 510
 
+// pseudo file for volume parameters
+#define XXDP_VOLUMEINFO_FILNAM	"$VOLUM" // valid XXDP file name
+#define XXDP_VOLUMEINFO_EXT	"INF"
 // boot block and monitor blocks are pseudo files
 #define XXDP_BOOTBLOCK_FILNAM	"$BOOT" // valid XXDP file names
 #define XXDP_BOOTBLOCK_EXT	"BLK"
@@ -111,26 +114,23 @@ typedef struct {
 	xxdp_blocknr_t block_count ; // saved blockcount from UFD.
 	// UFD should not differ from blocklist.count !
 	uint32_t data_size; // byte count in data[]
-	uint8_t *data; // dynamic array with 'size' entires
+	uint8_t *data; // dynamic array with 'size' entries
 	struct tm date; // file date. only y,m,d valid
 	uint8_t	changed ; // calc'd from image_changed_blocks
+	int	fixed ; // is part of filesystem, can not be deleted
 } xxdp_file_t;
 
 // all elements of a populated xxdp disk image
 typedef struct {
 	// link to image data and size
-	// pointer reference outside locations,
-	// which may be change if image-resize is necessary
-	 uint8_t **image_data_ptr; // ptr to uint8_t data[]
-	 uint32_t *image_size_ptr ; // ptr to size of data[]
+	 uint8_t *image_data;
+	 uint32_t image_size ;
 	 boolarray_t *image_changed_blocks ; // blocks marked as "changed". may be NULL
 
 	// the device this filesystem resides on
 	device_type_t dec_device ;
 	device_info_t  *device_info ;
-	xxdp_radi_t *radi ;    // Random Access Device Information
-
-	int expandable ; // boolean: blockcount may be increased in _add_file()
+	xxdp_radi_t radi ;    // Random Access Device Information
 
 	 int blockcount ; // usable blocks in filesystem.
 	 xxdp_blocknr_t	preallocated_blockcount ; // fix blocks at start
@@ -163,8 +163,8 @@ extern char * xxdp_fileorder[] ;
 
 
 // before first use. Link with image data buffer
-xxdp_filesystem_t *xxdp_filesystem_create(device_type_t dec_device, uint8_t **image_data_ptr, uint32_t *image_data_size_ptr,
-		boolarray_t *changedblocks,	int expandable) ;
+xxdp_filesystem_t *xxdp_filesystem_create(device_type_t dec_device, uint8_t *image_data, uint32_t image_size,
+		boolarray_t *changedblocks) ;
 
 void xxdp_filesystem_destroy(xxdp_filesystem_t *_this) ;
 

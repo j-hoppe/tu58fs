@@ -60,7 +60,7 @@
 #include "tu58drive.h"	// own
 
 // hold one image per device
-image_t tu58_image[TU58_DEVICECOUNT];
+image_t *tu58_image[TU58_DEVICECOUNT];
 
 #ifdef MACOSX
 // clock_gettime() is not available under OSX
@@ -103,40 +103,47 @@ uint8_t tu58_runonce = 0;	// set nonzero to indicate emulator has been run
 int volatile tu58_offline_request;  // 1: main thread wants offline mode
 int volatile tu58_offline; // TU58 is offline, all drives without cartridge
 
+
+void tu58images_init() {
+	int32_t unit;
+    for (unit=0 ; unit < TU58_DEVICECOUNT; unit++)  { // minimal init
+        tu58_image[unit] = NULL ;
+    }
+}
+
+// allocate an image for a TU58 device
+image_t *tu58image_create(int32_t unit, int forced_data_size) {
+	if (!IMAGE_UNIT_VALID(unit)) {
+		fatal("bad unit %d", unit); //terminates
+	}
+	if (tu58_image[unit] != NULL)
+		fatal("tu58image_create(): duplicate allocation") ;//terminates
+
+	tu58_image[unit] = image_create(devTU58, unit, forced_data_size) ;
+	return tu58_image[unit] ;
+}
+
+
 // select image over unit number
 image_t *tu58image_get(int32_t unit) {
 	if (!IMAGE_UNIT_VALID(unit)) {
 		fatal("bad unit %d", unit);
 		return NULL; // not reached
 	}
-	return &(tu58_image[unit]);
+	return tu58_image[unit];
 }
 
-// initialize data structures
-void tu58images_init(void) {
-	image_t *img;
-	int32_t unit;
-
-	for (unit = 0; unit < TU58_DEVICECOUNT; unit++) {
-		img = &tu58_image[unit];
-		image_init(img, devTU58);
-		img->unit = unit;
-// defined by image(devTU58)
-//		img->blocksize = TU58_BLOCKSIZE;
-//		img->min_blockcount = TU58_CARTRIDGE_BLOCKCOUNT;
-		img->max_blockcount = 0x10000;
-	}
-}
 
 // save all changes
 void tu58images_closeall(void) {
 	image_t *img;
 	int32_t unit;
 	for (unit = 0; unit < TU58_DEVICECOUNT; unit++) {
-		img = &tu58_image[unit];
-		if (img->open) {
-			image_sync(img);
-			image_close(img);
+		img = tu58_image[unit];
+		if (img) {
+			if (img->open)
+				image_sync(img);
+			image_destroy(img);
 		}
 	}
 }
@@ -150,9 +157,9 @@ void tu58images_sync_all() {
 		return; // not wanted
 
 	for (unit = 0; unit < TU58_DEVICECOUNT; unit++) {
-		img = &tu58_image[unit];
+		img = tu58_image[unit];
 
-		if (img->open) {
+		if (img && img->open) {
 			if (opt_debug)
 				info("unit %d sync ", unit);
 			image_sync(img); // does locking

@@ -50,6 +50,7 @@
 #include <stdint.h>
 #include <fcntl.h>
 
+#include "error.h"
 #include "utils.h"
 #include "main.h"	// option flags
 #include "serial.h"	// own

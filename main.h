@@ -38,8 +38,6 @@
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
-#include <stdint.h>
-
 #define PROGNAME	"tu58fs"
 
 #ifndef _MAIN_C_
@@ -60,10 +58,6 @@ extern int opt_synctimeout_sec ; // save changed image to disk after so many sec
 extern int opt_offlinetimeout_sec ; // TU58 waits with "offline" until so many seconds of RS232-inactivity
 
 #endif
-
-void fatal (char *, ...);
-void error (char *, ...);
-void info (char *, ...);
 
 
 #endif

@@ -59,7 +59,7 @@
 
 #ifndef _TU58DRIVE_C_
 // data cartridges
-extern image_t tu58_image[TU58_DEVICECOUNT];
+extern image_t *tu58_image[TU58_DEVICECOUNT];
 
 
 // communication beetween thread and main()
@@ -71,8 +71,9 @@ extern volatile int	tu58_offline ; // TU58 is offline, all drives without cartri
 
 #endif
 
+void tu58images_init(void) ;
+image_t *tu58image_create(int32_t unit, int forced_data_size) ;
 image_t *tu58image_get(int32_t unit) ;
-void tu58images_init(void);
 void tu58images_closeall(void);
 void tu58images_sync_all();
 

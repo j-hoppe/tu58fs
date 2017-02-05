@@ -95,38 +95,42 @@
 // verify with filesystem_t
 char *filesystemtext[3] = { "none", "XXDP", "RT11" };
 
-// get next higher block count needed for "count" bytes
-static int size2blocks(image_t *_this, int count) {
-	_this->blocksize;
-	int result = count / _this->blocksize;
-	if (count % _this->blocksize)
-		result++;
-	return result;
-}
+image_t *image_create(device_type_t dec_device, int unit, int forced_data_size) {
+	int block_count;
+	image_t *_this;
+	_this = malloc(sizeof(image_t));
+	pthread_mutex_init(&_this->mutex, NULL);
+	_this->open = 0;
+	_this->changed = 0;
+	_this->changedblocks = NULL;
+	_this->host_fpath = NULL;
+	_this->pdp_filesystem = NULL;
+	_this->hostdir = NULL;
+	_this->dec_filesystem = fsNONE;
+	_this->dec_device = dec_device;
+	_this->unit = unit;
+	_this->device_info = (device_info_t*) search_tagged_array(device_info_table,
+			sizeof(device_info_t), dec_device);
+	assert(_this->device_info);
 
-// increase image size,
-static int image_enlarge(image_t *_this, int new_blockcount) {
-	uint8_t *newdata;
-	int newsize;
-	if (new_blockcount >= _this->max_blockcount)
-		return error_set(ERROR_ILLPARAMVAL, "Unit %d: image_enlarge invalid blockcount %d",
-				_this->unit, new_blockcount);
-	if (new_blockcount < _this->min_blockcount)
-		new_blockcount = _this->min_blockcount;
+	// create data buffer, not yet extended
+	_this->blocksize = 512; // all devices
 
-	newsize = new_blockcount * _this->blocksize;
-	if (newsize > _this->data_size) {
-		// enlarge and preserve content
-		if (!_this->data)
-			_this->data = (uint8_t *) malloc(newsize);
-		else
-			_this->data = (uint8_t *) realloc(_this->data, newsize);
-		_this->data_size = newsize;
-		if (opt_verbose)
-			info("unit %d enlarged to %d blocks = %dKB", _this->unit, new_blockcount,
-					_this->data_size / 1024);
-	}
-	return ERROR_OK;
+	_this->forced_blockcount = NEEDED_BLOCKS(_this->blocksize, forced_data_size);
+
+	if (_this->forced_blockcount) { // correct range
+		if (_this->forced_blockcount < _this->device_info->block_count)
+			_this->forced_blockcount = _this->device_info->block_count;
+		else if (_this->forced_blockcount > _this->device_info->max_block_count)
+			_this->forced_blockcount = _this->device_info->max_block_count;
+		block_count = _this->forced_blockcount;
+	} else
+		block_count = _this->device_info->block_count;
+	_this->data_size = block_count * _this->blocksize;
+	_this->data = malloc(_this->data_size);
+	_this->changedblocks = boolarray_create(IMAGE_MAX_BLOCKS);
+
+	return _this;
 }
 
 static void image_lock(image_t *_this) {
@@ -161,20 +165,22 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 	// get timestamps, to monitor changes
 	stat(_this->host_fpath, &_this->host_fattr);
 
-	// calc image size
-	if (_this->autosizing && !*filecreated) {
-		// round up to blocks
-		blockcount = size2blocks(_this, _this->host_fattr.st_size);
-		// never smaller then the physical cartridge:
-		if (blockcount < _this->min_blockcount)
-			blockcount = _this->min_blockcount;
-	} else
-		blockcount = _this->min_blockcount;
-	_this->data_size = blockcount * _this->blocksize; // std
-	_this->data = realloc(_this->data, _this->data_size);
+	// clear image
+	memset(_this->data, 0, _this->data_size);
 
 	if (!*filecreated) {
-		int res = read(fd, _this->data, _this->data_size);
+		// existing file
+		int res ;
+		if (_this->host_fattr.st_size > _this->data_size) { // trunc ?
+			if (!is_fileset(_this->host_fpath, 0, _this->data_size))
+				fatal(
+						"File \"%s\" is %d blocks, shall be trunc'd to %d blocks, non-zero data would be lost",
+						_this->host_fpath, NEEDED_BLOCKS(_this->blocksize, _this->data_size),
+						_this->forced_blockcount);
+		}
+
+		res = read(fd, _this->data, _this->data_size);
+
 		// read file to memory
 		if (res < 0)
 			return error_set(ERROR_HOSTFILE, "Unit %d: image_open cannot read \"%s\"",
@@ -184,30 +190,22 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 					"Unit %d: image_open cannot read %d bytes from \"%s\"", _this->unit,
 					_this->host_fattr.st_size, _this->host_fpath);
 		_this->changed = 0; // is in sync with disc file
-	}
-
-	// close file, TU58 works only on image
-	// if "c" flag, now empty file created
-	close(fd);
-
-	if (*filecreated) {
+	} else {
+		// new file created
 		// init mem. even if later file is loaded?
 		switch (_this->dec_filesystem) {
 		case fsNONE:
-			memset(_this->data, 0, _this->data_size);
 			info("unit %d: zero'd new tape on '%s'", _this->unit, _this->host_fpath);
 			break;
 		case fsXXDP:
 		case fsRT11: {
 			filesystem_t *pdp_fs;
 			// render an empty filesystem into data[]
-			pdp_fs = filesystem_create(_this->dec_filesystem, _this->dec_device, &_this->data,
-					&_this->data_size,
-					NULL, 1);
+			pdp_fs = filesystem_create(_this->dec_filesystem, _this->dec_device, _this->data,
+					_this->data_size, NULL);
 			if (filesystem_render(pdp_fs))
-				return error_set(error_code, "Opening image file");
+				return error_set(error_code, "Creating empty file system");
 			filesystem_destroy(pdp_fs);
-			// xxdp_init(_this);
 			info("unit %d: initialize %s directory on '%s'", _this->unit,
 					filesystem_name(pdp_fs->type), _this->host_fpath);
 		}
@@ -216,6 +214,11 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 		_this->changed = 1; // must be written
 		// blocks need not be marked as "changed" because no file on image yet
 	}
+
+	// close file, TU58 works only on image
+	// if "c" flag, now empty file created
+	close(fd);
+
 	return ERROR_OK;
 }
 
@@ -231,51 +234,28 @@ static int image_hostfile_save(image_t *_this) {
 	return 0;
 }
 
-void image_init(image_t *_this, device_type_t dec_device) {
-	pthread_mutex_init(&_this->mutex, NULL);
-	_this->open = 0;
-	_this->changed = 0;
-	_this->changedblocks = NULL;
-	_this->host_fpath = NULL;
-	_this->pdp_filesystem = NULL;
-	_this->hostdir = NULL;
-	_this->dec_filesystem = fsNONE;
-	_this->blocksize = 512;
-	_this->dec_device = dec_device;
-	_this->device_info = (device_info_t*) search_tagged_array(device_info_table,
-			sizeof(device_info_t), dec_device);
-	assert(_this->device_info);
-	// create data buffer, not yet extended
-	_this->min_blockcount = _this->device_info->block_count;
-	_this->max_blockcount = _this->device_info->block_count;
-	_this->data_size = _this->device_info->block_count * _this->blocksize;
-	_this->data = malloc(_this->data_size);
-}
-
 int image_open(image_t *_this, int shared, int readonly, int allowcreate, char *fname,
-		filesystem_type_t dec_filesystem, int autosizing) {
+		filesystem_type_t dec_filesystem) {
 	int filecreated;
 	// save some data
 	_this->host_fpath = strdup(fname); // free'd on close
 	_this->shared = shared;
 	_this->readonly = readonly;
 	_this->dec_filesystem = dec_filesystem;
-	_this->autosizing = autosizing;
 	if (shared) {
-		_this->changedblocks = boolarray_create(IMAGE_MAX_BLOCKS);
 		// make filesystem from files and allocate data
 		_this->pdp_filesystem = filesystem_create(dec_filesystem, _this->dec_device,
-				&_this->data, &_this->data_size, _this->changedblocks, _this->autosizing);
+				_this->data, _this->data_size, _this->changedblocks);
 
 		_this->hostdir = hostdir_create(_this->host_fpath, _this->pdp_filesystem);
 
-		if (hostdir_load(_this->hostdir, _this->autosizing, allowcreate, &filecreated))
+		if (hostdir_load(_this->hostdir, allowcreate, &filecreated))
 			return error_set(error_code, "Opening shared directory");
 		// data and data_size may have been enlarged !
 	} else {
 		// also initializes new tape
 		if (image_hostfile_open(_this, allowcreate, &filecreated))
-			return error_set(error_code, "Opening shared directory");
+			return error_set(error_code, "Opening image file");
 	}
 	_this->seekpos = 0;
 	_this->open = 1;
@@ -289,12 +269,12 @@ void image_info(image_t *_this) {
 		info("Unit %d %10s fmt=%s size=%dKB=%d blocks, shared dir=\"%s\"", _this->unit,
 				_this->readonly ? "readonly" : "read/write",
 				filesystemtext[_this->dec_filesystem], _this->data_size / 1024,
-				_this->data_size / _this->blocksize, _this->host_fpath);
+				NEEDED_BLOCKS(_this->blocksize, _this->data_size), _this->host_fpath);
 	else
 		info("Unit %d %10s fmt=%s size=%dKB=%d blocks, img file=\"%s\"", _this->unit,
 				_this->readonly ? "readonly" : "read/write",
 				filesystemtext[_this->dec_filesystem], _this->data_size / 1024,
-				_this->data_size / _this->blocksize, _this->host_fpath);
+				NEEDED_BLOCKS(_this->blocksize, _this->data_size), _this->host_fpath);
 }
 
 // like lseek(2) on files
@@ -350,12 +330,6 @@ int image_read(image_t *_this, void *buf, int32_t count) {
 		return error_set(ERROR_IMAGE_MODE, "image_read(): closed unit %d", _this->unit);
 	image_lock(_this);
 
-	if (_this->autosizing) {
-		int neededblocks = size2blocks(_this, _this->seekpos + count);
-		if (image_enlarge(_this, neededblocks) < 0)
-			error("Unit %d: can not enlarge image to %d blocks", _this->unit, neededblocks);
-	}
-
 	// read until count or end, set seekpos
 	bytesleft = _this->data_size - _this->seekpos;
 	if (count > bytesleft) {
@@ -382,13 +356,6 @@ int image_write(image_t *_this, void *buf, int32_t count) {
 
 	image_lock(_this);
 
-	if (_this->autosizing) {
-		int neededblocks = size2blocks(_this, _this->seekpos + count);
-		if (image_enlarge(_this, neededblocks) < 0)
-			error_set(ERROR_IMAGE_EOF, "Unit %d: can not enlarge image to %d blocks",
-					_this->unit, neededblocks);
-	}
-
 	bytesleft = _this->data_size - _this->seekpos;
 	if (count > bytesleft)
 		count = bytesleft;
@@ -399,13 +366,11 @@ int image_write(image_t *_this, void *buf, int32_t count) {
 	// set dirty
 	_this->changed = 1;
 	_this->changetime_ms = now_ms();
-	if (_this->changedblocks) { // change indcators only for shared dir
-		// mark all block in range
-		for (blknr = _this->seekpos / _this->blocksize;
-				blknr < (_this->seekpos + count) / _this->blocksize; blknr++)
-			boolarray_bit_set(_this->changedblocks, blknr);
-		// boolarray_print_diag(_this->changedblocks, stderr, _this->min_blockcount, "IMAGE");
-	}
+	// mark all block in range
+	for (blknr = _this->seekpos / _this->blocksize;
+			blknr < (_this->seekpos + count) / _this->blocksize; blknr++)
+		boolarray_bit_set(_this->changedblocks, blknr);
+	// boolarray_print_diag(_this->changedblocks, stderr, _this->block_count, "IMAGE");
 	_this->seekpos += count;
 
 	image_unlock(_this);
@@ -435,8 +400,7 @@ int image_save(image_t *_this) {
 	}
 	if (!error_code) {
 		_this->changed = 0;
-		if (_this->changedblocks)
-			boolarray_clear(_this->changedblocks);
+		boolarray_clear(_this->changedblocks);
 	}
 	image_unlock(_this);
 	return error_code;
@@ -445,24 +409,26 @@ int image_save(image_t *_this) {
 // write to disk, if unsave
 // what if disk content and image has changed?
 int image_sync(image_t *_this) {
+	int result;
 	if (_this->open) {
 		if (_this->shared) {
 			// merge files in the image and the shared directory
 			image_lock(_this);
 			hostdir_sync(_this->hostdir);
-			boolarray_clear(_this->changedblocks) ;
 			image_unlock(_this);
 		} else {
 			// just save the image file
 			if (_this->changed)
-				return image_save(_this);
+				result = image_save(_this);
 		}
 	} else
-		return ERROR_OK;
+		result = ERROR_OK;
+	boolarray_clear(_this->changedblocks);
+	return result;
 }
 
 // no further read/write allowed.
-void image_close(image_t *_this) {
+void image_destroy(image_t *_this) {
 	_this->open = 0;
 	if (_this->host_fpath)
 		free(_this->host_fpath);
@@ -474,9 +440,7 @@ void image_close(image_t *_this) {
 	if (_this->shared) {
 		hostdir_destroy(_this->hostdir);
 		filesystem_destroy(_this->pdp_filesystem);
-		boolarray_destroy(_this->changedblocks);
-		_this->changedblocks = NULL;
 	}
-	assert(_this->changedblocks == NULL);
+	free(_this);
 }
 

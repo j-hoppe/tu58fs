@@ -44,14 +44,16 @@
 #include <time.h>
 
 
-// how many blocks are needed to hold "data_size" bytes?
-#define NEEDED_BLOCKS(blocksize,data_size) ( ((data_size)+(blocksize)-1) / (blocksize) )
+// how many blocks are needed to hold "byte_count" bytes?
+#define NEEDED_BLOCKS(blocksize,byte_count) ( ((byte_count)+(blocksize)-1) / (blocksize) )
 
 
 void delay_ms(int32_t ms);
 uint64_t now_ms(); // current timestamp in milli seconds
 
 int is_memset(void *ptr, uint8_t val, uint32_t size);
+int is_fileset(char *fpath, uint8_t val, uint32_t offset);
+
 char *strtrim(char *txt);
 char *strrpad(char *txt, int len, char c);
 int inputline(char **tokenlist, int tokenlist_size);
@@ -61,6 +63,8 @@ uint16_t rad50_encode(char *s);
 struct tm dos11date_decode(uint16_t w);
 uint16_t dos11date_encode(struct tm t);
 
+// 1, if path/filename exists
+int file_exists(char *path, char *filename) ;
 char *extract_extension(char *filename, int truncate) ;
 
 

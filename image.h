@@ -61,7 +61,8 @@ typedef struct {
 	char *host_fpath;		// file or directory name, valid while open
 	int shared; // 0 = simple file image, 1 = files in host directory
 	int readonly;
-	int autosizing;
+
+	int	forced_blockcount ; // internally calced
 
 	struct stat host_fattr; // timestamps on open(), do track changes on disk
 	hostdir_t	*hostdir ; // if shared
@@ -70,8 +71,6 @@ typedef struct {
 	// basic geometry
 	device_info_t *device_info ;
 	int	blocksize ;
-	int	min_blockcount ; // limit for enlarge()
-	int	max_blockcount ; // limit for enlarge()
 
 	int8_t open; // in use
 	int8_t changed; // was written since last save()
@@ -89,10 +88,10 @@ typedef struct {
 
 // image_t *tu58image_get(int32_t unit);
 // image_t *image_is_open(image_t *_this);
-void image_init(image_t *_this, device_type_t dec_device) ;
+image_t *image_create(device_type_t dec_device, int unit, int forced_data_size) ;
 
 int image_open(image_t *_this, int shared, int readonly, int allowcreate, char *fname,
-		filesystem_type_t dec_filesystem, int autosizing) ;
+		filesystem_type_t dec_filesystem) ;
 int image_lseek(image_t *_this, int offset, int whence);
 int image_blockseek(image_t *_this, int32_t size, int32_t block, int32_t offset);
 
@@ -104,6 +103,6 @@ int image_sync(image_t *_this);
 
 void image_info(image_t *_this);
 
-void image_close(image_t *_this);
+void image_destroy(image_t *_this);
 
 #endif /* _IMAGE_H_ */
