@@ -6,14 +6,16 @@
 PROG = tu58fs
 
 # compiler flags and libraries
-COMM = -UWINCOMM
-#CFLAGS = -I. -Wall -c $(COMM)
+#CFLAGS = -I. -Wall -c 
 CC_DBG_FLAGS = -ggdb3 -O0
 LDFLAGS = -lpthread -lrt
 
 ifeq ($(MAKE_TARGET_ARCH),BBB)
 	CC=$(BBB_CC) -std=c99 -U__STRICT_ANSI__
 	OBJDIR=bin-bbb
+else ifeq ($(MAKE_TARGET_ARCH),RPI)
+	CC=arm-linux-gnueabihf-gcc -std=c99 -U__STRICT_ANSI__
+	OBJDIR=bin-rpi
 else ifeq ($(MAKE_TARGET_ARCH),CYGWIN)
     # compiling under CYGWIN
     OS_CCDEFS=
@@ -29,7 +31,6 @@ endif
 CCFLAGS= \
 	-I.	\
 	-c	\
-	$(COMM)	\
 	$(CCDEFS) $(CC_DBG_FLAGS) $(OS_CCDEFS)
 
 OBJECTS = $(OBJDIR)/main.o \
