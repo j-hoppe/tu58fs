@@ -280,7 +280,7 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 	if (stat(_this->path, &sb)) {
 		// not found
 		if (allowcreate) {
-			if (mkdir(_this->path, 0666)) { // open rw for all
+			if (mkdir(_this->path, 0777)) { // open rw for all
 				error("Creation of directory \"%s\" failed in \"%s\"", _this->path,
 						getcwd(pathbuff, sizeof(pathbuff)));
 				return -1;
