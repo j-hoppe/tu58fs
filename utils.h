@@ -50,6 +50,8 @@
 
 void delay_ms(int32_t ms);
 uint64_t now_ms(); // current timestamp in milli seconds
+char *cur_time_text(void) ;
+
 
 int is_memset(void *ptr, uint8_t val, uint32_t size);
 int is_fileset(char *fpath, uint8_t val, uint32_t offset);

@@ -77,6 +77,16 @@ uint64_t now_ms() {
 	return tv.tv_sec * (uint64_t) 1000 + tv.tv_usec / 1000;
 }
 
+char *cur_time_text() {
+	static char result[40] ;
+	time_t timer;
+	struct tm* tm_info;
+	time(&timer);
+	tm_info = localtime(&timer);
+	strftime(result, 26, "%H:%M:%S", tm_info);
+	return result;
+}
+
 // is memory all set with a coinst value?
 // test of memset()
 int is_memset(void *ptr, uint8_t val, uint32_t size) {

@@ -42,7 +42,8 @@
 #include <stdarg.h>
 #include <assert.h>
 
-#include "main.h"  // error()
+#include "main.h"  // opt_*
+#include "utils.h"
 #include "error.h"  // own
 
 
@@ -87,7 +88,7 @@ void info(char *fmt, ...) {
 	va_list args;
 	if (!opt_background) {
 		va_start(args, fmt);
-		fprintf(ferr, "info: ");
+		fprintf(ferr, "[%s] info: ", cur_time_text());
 		vfprintf(ferr, fmt, args);
 		fprintf(ferr, "\n");
 		va_end(args);
@@ -101,7 +102,7 @@ void info(char *fmt, ...) {
 void error(char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	fprintf(ferr, "ERROR: ");
+	fprintf(ferr, "[%s] ERROR: ", cur_time_text());
 	vfprintf(ferr, fmt, args);
 	fprintf(ferr, "\n");
 	va_end(args);
@@ -114,7 +115,7 @@ void error(char *fmt, ...) {
 void fatal(char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	fprintf(ferr, "FATAL: ");
+	fprintf(ferr, "[%s] FATAL: ", cur_time_text());
 	vfprintf(ferr, fmt, args);
 	fprintf(ferr, "\n");
 	va_end(args);
