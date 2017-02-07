@@ -55,14 +55,14 @@ device_info_t device_info_table[] = {
     },
     {
     	.device_type = devRP0456 ,
-        .device_name = "RP04,5,6",
+        .device_name = "RP0456",
         .mnemonic = "DB",
         .block_count = 48000, // XXDP
 		.max_block_count = 48000
     },
     {
     	.device_type = devRK035 ,
-        .device_name = "RK03,5",
+        .device_name = "RK035",
         .mnemonic = "DK",
         .block_count = 4800, // XXDP
     	.max_block_count = 4800 // XXDP
@@ -83,7 +83,7 @@ device_info_t device_info_table[] = {
     },
     {
     	.device_type = devRK067 ,
-        .device_name = "RK06,7",
+        .device_name = "RK067",
         .mnemonic = "DM",
         .block_count = 27104, // XXDP
     	.max_block_count = 27104
@@ -106,14 +106,14 @@ device_info_t device_info_table[] = {
     },
     {
     	.device_type = devRS ,
-        .device_name = "RS03,4",
+        .device_name = "RS034",
         .mnemonic = "DS",
         .block_count = 989, // XXDP
 		.max_block_count = 989
     },
     {
     	.device_type = devTU56 ,
-        .device_name = "TU56,DECTAPE",
+        .device_name = "TU56", // DECTAPE
         .mnemonic = "DT",
         .block_count = 576, // XXDP
 		.max_block_count = 576

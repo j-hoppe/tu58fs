@@ -35,6 +35,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  6-Feb-2017 	JH  V 1.0 	releases for Ubuntu/BBB/RPI,Cygwin tested & published
  *  5-Feb-2017 	JH  V 0.5 	RT-11 working
  * 12-Jan-2017  JH  V 0.1   Edit start
  *
@@ -42,7 +43,7 @@
 
 #define _MAIN_C_
 
-#define VERSION	"v0.5"
+#define VERSION	"v1.0.0"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -85,7 +86,7 @@ int opt_debug = 0; // set nonzero for debug output
 int opt_vax = 0; // set to remove delays for aggressive VAX console timeouts
 int opt_background = 0; // set to run in background mode (no console I/O except errors)
 int opt_synctimeout_sec = 0; // save changed image to disk after so many seconds of write-inactivity
-int opt_offlinetimeout_sec = 0; // TU58 waits with "offline" until so many seconds of RS232-inactivity
+int opt_offlinetimeout_sec = 5; // disabled: TU58 waits with "offline" until so many seconds of RS232-inactivity
 
 int arg_menu_linewidth = 80;
 
@@ -280,16 +281,16 @@ static void parse_commandline(int argc, char **argv) {
 	getopt_def(&getopt_parser, "st", "synctimeout", "seconds", NULL, "3",
 			"An image changed by PDP is written to disk after this idle period.",
 			NULL, NULL, NULL, NULL);
-
+/*
 	getopt_def(&getopt_parser, "ot", "offlinetimeout", "seconds", NULL, "3",
 			"By hitting a number-key 0..7, the device goes offline for user control.\n"
 					"PDP traffic shall not be interrupted,  so \"offline\" state is entered delayed\n"
 					"after RS232 port is silent for this period.",
 			NULL, NULL, NULL, NULL);
-
+*/
 	sprintf(buff, "Read a binary disk/tape image, and extract files into directory\n"
 			"A filesystem type must be specified (like -xxdp)\n"
-			"<device_type> can specify a different device geometry for the image,"
+			"<device_type> can specify a different device geometry for the image,\n"
 			"allowed: %s", device_type_namelist());
 	getopt_def(&getopt_parser, "up", "unpack", "filename,dirname,devicetype", NULL, NULL, buff,
 	NULL, NULL, NULL, NULL);
@@ -331,9 +332,11 @@ static void parse_commandline(int argc, char **argv) {
 		} else if (getopt_isoption(&getopt_parser, "synctimeout")) {
 			if (getopt_arg_i(&getopt_parser, "seconds", &opt_synctimeout_sec) < 0)
 				commandline_option_error(NULL);
+/*
 		} else if (getopt_isoption(&getopt_parser, "offlinetimeout")) {
 			if (getopt_arg_i(&getopt_parser, "seconds", &opt_offlinetimeout_sec) < 0)
 				commandline_option_error(NULL);
+*/
 		} else if (getopt_isoption(&getopt_parser, "background")) {
 			opt_background = 1;
 		} else if (getopt_isoption(&getopt_parser, "timing")) {
