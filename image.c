@@ -438,8 +438,10 @@ void image_destroy(image_t *_this) {
 	_this->data = NULL;
 	_this->data_size = 0;
 	if (_this->shared) {
-		hostdir_destroy(_this->hostdir);
-		filesystem_destroy(_this->pdp_filesystem);
+		if (_this->hostdir)
+			hostdir_destroy(_this->hostdir);
+		if (_this->pdp_filesystem)
+			filesystem_destroy(_this->pdp_filesystem);
 	}
 	free(_this);
 }
