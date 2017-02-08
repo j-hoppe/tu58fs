@@ -197,7 +197,7 @@ static int xxdp_filesystem_recalc_radi(xxdp_filesystem_t *_this) {
 	// do not assign less than DEC table
 	ufd_blocks_num = NEEDED_BLOCKS(XXDP_BLOCKSIZE, _this->image_size) / 280;
 	if (ufd_blocks_num > radi->ufd_blocks_num)
-		radi->ufd_blocks_num = ufd_blocks_num ;
+		radi->ufd_blocks_num = ufd_blocks_num;
 	curblk += radi->ufd_blocks_num;
 
 	// 4) bitmap size: blocks/8 bytes
@@ -260,7 +260,7 @@ xxdp_filesystem_t *xxdp_filesystem_create(device_type_t dec_device, uint8_t *ima
 	assert(radi);
 	_this->radi = *radi; // copy
 
-	xxdp_filesystem_recalc_radi(_this) ; // test: does XXDP understand
+	xxdp_filesystem_recalc_radi(_this); // test: does XXDP understand
 	// if image is enlarged, the precoded layout params of the device are not sufficient
 	// for the enlarged blockcount.
 	//see TU58: normally 1 prealloced block for 256KB tape
@@ -963,7 +963,7 @@ int xxdp_filesystem_render(xxdp_filesystem_t *_this) {
 // it never changes
 static void xxdp_filesystem_render_volumeinfo(xxdp_filesystem_t *_this, xxdp_file_t *f) {
 	// static stream instance as buffer for name=value text
-	static uint8_t text_buffer[4096 + XXDP_MAX_FILES_PER_IMAGE * 80];// listing for all files
+	static uint8_t text_buffer[4096 + XXDP_MAX_FILES_PER_IMAGE * 80]; // listing for all files
 	char line[1024];
 	int i;
 	time_t t = time(NULL);
@@ -991,7 +991,8 @@ static void xxdp_filesystem_render_volumeinfo(xxdp_filesystem_t *_this, xxdp_fil
 	sprintf(line, "monitor_block=%d\n", _this->radi.monitor_block);
 	strcat(text_buffer, line);
 
-	sprintf(line, "\n# Master File Directory %s\n", _this->radi.mfd2 < 0 ? "Var2: MFD1/2": "Var1: MFD1+MFD2");
+	sprintf(line, "\n# Master File Directory %s\n",
+			_this->radi.mfd2 < 0 ? "Var2: MFD1/2" : "Var1: MFD1+MFD2");
 	strcat(text_buffer, line);
 	sprintf(line, "mfd1=%d\n", _this->radi.mfd1);
 	strcat(text_buffer, line);
@@ -999,7 +1000,8 @@ static void xxdp_filesystem_render_volumeinfo(xxdp_filesystem_t *_this, xxdp_fil
 		sprintf(line, "mfd2=%d\n", _this->radi.mfd2);
 		strcat(text_buffer, line);
 	}
-	sprintf(line, "\n# Bitmap of used blocks:\nbitmap_block_1=%d\n", _this->radi.bitmap_block_1);
+	sprintf(line, "\n# Bitmap of used blocks:\nbitmap_block_1=%d\n",
+			_this->radi.bitmap_block_1);
 	strcat(text_buffer, line);
 	sprintf(line, "bitmaps_num=%d\n", _this->radi.bitmaps_num);
 	strcat(text_buffer, line);
@@ -1014,13 +1016,14 @@ static void xxdp_filesystem_render_volumeinfo(xxdp_filesystem_t *_this, xxdp_fil
 		sprintf(line, "\n# File %2d \"%s.%s\".", i, f->filnam, f->ext);
 		strcat(text_buffer, line);
 		sprintf(line, " Data %d = 0x%X bytes, start block %d @ 0x%X.", f->data_size,
-				f->data_size, f->blocklist.blocknr[0], f->blocklist.blocknr[0] * XXDP_BLOCKSIZE);
+				f->data_size, f->blocklist.blocknr[0],
+				f->blocklist.blocknr[0] * XXDP_BLOCKSIZE);
 		strcat(text_buffer, line);
 	}
 	strcat(text_buffer, "\n");
 
-	f->data = text_buffer ;
-	f->data_size = strlen(text_buffer) ;
+	f->data = text_buffer;
+	f->data_size = strlen(text_buffer);
 }
 
 // special indexes:
@@ -1264,7 +1267,7 @@ char *xxdp_filename_to_host(char *filnam, char *ext) {
 
 // result ist filnam.ext, without spaces
 // "filname" and "ext" contain components WITH spaces, if != NULL
-// "bla.foo.c" => "BLA.FO", "C  ", resulr = "BLA.FO.C"
+// "bla.foo.c" => "BLA.FO", "C  ", result = "BLA.FO.C"
 char *xxdp_filename_from_host(char *hostfname, char *filnam, char *ext) {
 	static char result[80];
 	char pathbuff[4096];
@@ -1297,16 +1300,15 @@ char *xxdp_filename_from_host(char *hostfname, char *filnam, char *ext) {
 		*t++ = *s++;
 	*t = 0;
 
-	// return space-padded components
-	if (filnam) // length MUST be > 7
-		sprintf(filnam, "%-6s", _filnam);
-	if (ext) // length MUST be > 4
-		sprintf(ext, "%-3s", _ext);
+	if (filnam) // length MUST be >= 7
+		strcpy(filnam, strtrim(_filnam));
+	if (ext) // length MUST be >= 4
+		strcpy(ext, strtrim(_ext));
 
-	strcpy(result, _filnam);
+	strcpy(result, strtrim(_filnam));
 	if (strlen(_ext)) {
 		strcat(result, ".");
-		strcat(result, _ext);
+		strcat(result, strtrim(_ext));
 	}
 
 	return result;

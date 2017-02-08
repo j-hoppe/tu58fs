@@ -590,7 +590,7 @@ static void parse_directory(rt11_filesystem_t *_this) {
 					f->date.tm_mday = (w >> 5) & 0x1f;
 					f->date.tm_mon = ((w >> 10) & 0x0f) - 1;
 				} else { // oldest: 1-jan-72
-					f->date.tm_year = 72 ;
+					f->date.tm_year = 72;
 					f->date.tm_mday = 1;
 					f->date.tm_mon = 0;
 				}
@@ -1117,7 +1117,7 @@ int rt11_filesystem_file_stream_add(rt11_filesystem_t *_this, char *hostfname, c
 			return error_set(ERROR_FILESYSTEM_OVERFLOW,
 					"Disk full, file \"%s\" with %d bytes too large", hostfname, data_size);
 
-		// make filename.extension to "FILN  .E  "
+		// make filename.extension to "FILN.E"(not: "FILN  .E  ")
 		rt11_filename_from_host(hostfname, filnam, ext);
 
 		// find file with this name. Duplicate check later
@@ -1331,16 +1331,14 @@ char *rt11_filename_from_host(char *hostfname, char *filnam, char *ext) {
 		*t++ = *s++;
 	*t = 0;
 
-	// return space-padded components
-	if (filnam) // length MUST be > 7
-		sprintf(filnam, "%-6s", _filnam);
-	if (ext) // length MUST be > 4
-		sprintf(ext, "%-3s", _ext);
-
-	strcpy(result, _filnam);
+	if (filnam) // length MUST be >= 7
+		strcpy(filnam, strtrim(_filnam));
+	if (ext) // length MUST be >= 4
+		strcpy(ext, strtrim(_ext));
+	strcpy(result, strtrim(_filnam));
 	if (strlen(_ext)) {
 		strcat(result, ".");
-		strcat(result, _ext);
+		strcat(result, strtrim(_ext));
 	}
 
 	return result;
