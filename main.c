@@ -267,14 +267,15 @@ static void parse_commandline(int argc, char **argv) {
 			"Open image file for a TU58 drive\n"
 					"<unit>: File is mounted in this drive (0..7).\n"
 					"<read_write_create>: \"r\" = device is read-only, \"w\" = writable,\n"
-					"\"c\" = writable and file is created if not existant.\n"
+					"\"c\" = writable and file is created if not existent.\n"
 					"Also the --xxdp, --rt11 and --size options are evaluated.\n"
 					"A missing file is created and initialized with 0s or empty XXDP or RT11 filesystem.",
 			"0 r 11XXDP.DSK", "mount image file XXDP.DSK into slot #0.",
 			NULL, NULL);
 	getopt_def(&getopt_parser, "sd", "shareddevice", "unit,read_write_create,directory",
 	NULL, NULL, "same as --device, but image is filled with files from a host directory.\n"
-			"-xxdp or -rt11 must be specified, <directory> must exist.",
+			"-xxdp or -rt11 must be specified. <directory> must be writable and\n"
+            "must not contain subdirs, it is created only with \"c\" option.",
 			"1 w /home/user/tu58/data.dir", "fill image with files in a directory.",
 			NULL, NULL);
 
@@ -297,7 +298,7 @@ static void parse_commandline(int argc, char **argv) {
 
 	sprintf(buff, "Read a binary disk/tape image, and extract files into directory\n"
 			"Read files from a directory and pack into binary disk/tape image\n"
-			"<device_type> can specify a different device geometry for the image,"
+			"<device_type> can specify a different device geometry for the image,\n"
 			"allowed: %s", device_type_namelist());
 	getopt_def(&getopt_parser, "pk", "pack", "dirname,filename,devicetype", NULL, NULL, buff,
 	NULL, NULL, NULL, NULL);
