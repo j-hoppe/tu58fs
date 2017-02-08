@@ -584,9 +584,16 @@ static void parse_directory(rt11_filesystem_t *_this) {
 				// creation date
 				w = IMAGE_GET_WORD(de + 6);
 				// 5 bit year, 2 bit "age". Year since 1972
-				f->date.tm_year = 72 + (w & 0x1f) + 32 * ((w >> 14) & 3);
-				f->date.tm_mday = (w >> 5) & 0x1f;
-				f->date.tm_mon = ((w >> 10) & 0x0f) - 1;
+				// date "0" is possible, then no display in DIR output
+				if (w) {
+					f->date.tm_year = 72 + (w & 0x1f) + 32 * ((w >> 14) & 3);
+					f->date.tm_mday = (w >> 5) & 0x1f;
+					f->date.tm_mon = ((w >> 10) & 0x0f) - 1;
+				} else { // oldest: 1-jan-72
+					f->date.tm_year = 72 ;
+					f->date.tm_mday = 1;
+					f->date.tm_mon = 0;
+				}
 				// "readonly", if either EREAD or EPROT)
 				f->readonly = 0;
 				if (f->status & (RT11_FILE_EREAD))
