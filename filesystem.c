@@ -57,10 +57,11 @@ char *filesystem_name(filesystem_type_t type) {
 }
 
 filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type,
-		uint8_t *image_data, uint32_t image_data_size, boolarray_t *changedblocks) {
+	int readonly,	uint8_t *image_data, uint32_t image_data_size, boolarray_t *changedblocks) {
 	filesystem_t *_this;
 	_this = malloc(sizeof(filesystem_t));
 	_this->type = type;
+	_this->readonly = readonly;
 	_this->xxdp = NULL;
 	_this->rt11 = NULL;
 

@@ -384,7 +384,7 @@ void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...) {
 }
 
 /*
- * searches a tag vlaue in an array of records, whose first element is an "int" sized tag.
+ * searches a tag value in an array of records, whose first element is an "int" sized tag.
  * end of array is marked with a 0 tag.
  * returns pointer to the found record on success.
  */
@@ -403,3 +403,5 @@ void *search_tagged_array(void *base, int element_size, int search_val) {
 	else
 		return NULL;
 }
+
+

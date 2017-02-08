@@ -87,7 +87,7 @@ typedef struct {
 
 typedef struct {
 	filesystem_type_t type ;
-
+	int	readonly ;
 	xxdp_filesystem_t *xxdp ;
 	rt11_filesystem_t *rt11 ;
 
@@ -98,7 +98,8 @@ typedef struct {
 
 char *filesystem_name(filesystem_type_t type) ;
 
-filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type, uint8_t *image_data, uint32_t image_data_size,
+filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type,
+	int readonly, uint8_t *image_data, uint32_t image_data_size,
 		boolarray_t *changedblocks) ;
 
 void filesystem_destroy(filesystem_t *_this) ;

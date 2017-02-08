@@ -35,15 +35,16 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  6-Feb-2017 	JH  V 1.0 	releases for Ubuntu/BBB/RPI,Cygwin tested & published
- *  5-Feb-2017 	JH  V 0.5 	RT-11 working
- * 12-Jan-2017  JH  V 0.1   Edit start
+ *  8-Feb-2017 	JH  V 1.0.1 	protect readonly image.
+ *  6-Feb-2017 	JH  V 1.0.0		releases for Ubuntu/BBB/RPI,Cygwin tested & published
+ *  5-Feb-2017 	JH  V 0.5 		RT-11 working
+ * 12-Jan-2017  JH  V 0.1   	Edit start
  *
  */
 
 #define _MAIN_C_
 
-#define VERSION	"v1.0.0"
+#define VERSION	"v1.0.1"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -449,7 +450,7 @@ static void parse_commandline(int argc, char **argv) {
 			if (image_open(img, 0, 0, 0, filename, cur_filesystem_type))
 				fatal("image_open failed");
 
-			pdp_fs = filesystem_create(cur_filesystem_type, device_type, img->data,
+			pdp_fs = filesystem_create(cur_filesystem_type, device_type, 0, img->data,
 					img->data_size, img->changedblocks);
 			if (filesystem_parse(pdp_fs))
 				fatal("filesystem_parse failed");
@@ -489,7 +490,7 @@ static void parse_commandline(int argc, char **argv) {
 				commandline_option_error("--size specification allowed only for TU58 device.");
 			img = image_create(device_type, 0xff, cur_size); // img is just a data buffer
 
-			pdp_fs = filesystem_create(cur_filesystem_type, device_type, img->data,
+			pdp_fs = filesystem_create(cur_filesystem_type, device_type, 0, img->data,
 					img->data_size, NULL);
 			hostdir = hostdir_create(dirname, pdp_fs);
 			if (hostdir_prepare(hostdir, 0, 0, NULL)) // check

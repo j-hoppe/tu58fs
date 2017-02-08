@@ -170,7 +170,7 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 
 	if (!*filecreated) {
 		// existing file
-		int res ;
+		int res;
 		if (_this->host_fattr.st_size > _this->data_size) { // trunc ?
 			if (!is_fileset(_this->host_fpath, 0, _this->data_size))
 				fatal(
@@ -201,8 +201,8 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 		case fsRT11: {
 			filesystem_t *pdp_fs;
 			// render an empty filesystem into data[]
-			pdp_fs = filesystem_create(_this->dec_filesystem, _this->dec_device, _this->data,
-					_this->data_size, NULL);
+			pdp_fs = filesystem_create(_this->dec_filesystem, _this->dec_device,
+					_this->readonly, _this->data, _this->data_size, NULL);
 			if (filesystem_render(pdp_fs))
 				return error_set(error_code, "Creating empty file system");
 			filesystem_destroy(pdp_fs);
@@ -245,7 +245,7 @@ int image_open(image_t *_this, int shared, int readonly, int allowcreate, char *
 	if (shared) {
 		// make filesystem from files and allocate data
 		_this->pdp_filesystem = filesystem_create(dec_filesystem, _this->dec_device,
-				_this->data, _this->data_size, _this->changedblocks);
+				_this->readonly, _this->data, _this->data_size, _this->changedblocks);
 
 		_this->hostdir = hostdir_create(_this->host_fpath, _this->pdp_filesystem);
 

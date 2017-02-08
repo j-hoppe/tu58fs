@@ -32,7 +32,7 @@
  *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- *
+ *  08-Feb-2017	 JH  do not update PDP file system if readonly
  *  20-Jan-2017  JH  created
  *
  *  To sync PDP image and host directory, the current state of both sides is
@@ -463,7 +463,7 @@ int hostdir_to_pdp_fs(hostdir_t *_this) {
 }
 
 // link to PDP image and directory
-// PDP filesystem must have been initilaiszed with devcie type, image data etc.
+// PDP filesystem must have been initialized with device type, image data etc.
 hostdir_t *hostdir_create(char *path, filesystem_t *pdp_fs) {
 	hostdir_t *_this;
 	_this = malloc(sizeof(hostdir_t));
@@ -534,7 +534,7 @@ static void hostdir_file_copy_from_pdp(hostdir_t *_this, hostdir_file_t *f) {
 	if (!dbg_simulate)
 		file_write(pathbuff, stream->data, stream->data_size);
 	if (opt_verbose)
-		info("Copied file \"%s\" from PDP to hostdir", pathbuff);
+		info("Copied file \"%s\" from PDP to shared dir.", pathbuff);
 }
 
 // delete a file on the hostdir
@@ -544,7 +544,7 @@ static void hostdir_file_delete(hostdir_t *_this, hostdir_file_t *f) {
 	if (!dbg_simulate)
 		remove(pathbuff);
 	if (opt_verbose)
-		info("Deleted file \"%s\" on hostdir", pathbuff);
+		info("Deleted file \"%s\" on shared dir.", pathbuff);
 }
 
 int hostdir_sync(hostdir_t *_this) {
@@ -569,76 +569,100 @@ int hostdir_sync(hostdir_t *_this) {
 
 	update_pdp = 0;
 	update_snapshot = 0;
-	for (i = 0; i < _this->snapshot.file_count; i++) {
-		hostdir_file_t *f = &_this->snapshot.file[i];
-		// 16 cases. The cases when one side is unchanged are easy
-		if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_unchanged) {
-			// do nothing
-		} else if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_missing) {
-			if (f->pdp_fixed)
-				hostdir_file_copy_from_pdp(_this, f); // restore
-			else
+	if (_this->pdp_fs->readonly) {
+		// readonly: only sync hostdir from PDP file system
+		int hostdir_changed = 0;
+		for (i = 0; i < _this->snapshot.file_count; i++) {
+			hostdir_file_t *f = &_this->snapshot.file[i];
+			if (f->state[side_host] != fs_unchanged)
+				hostdir_changed = 1;
+		}
+		if (hostdir_changed) {
+			// short code: rebuild whole hostdir
+			info("Device is readonly, reverting changes in shared dir \"%s\".", _this->path) ;
+			hostdir_prepare(_this, /*wipe*/1, /*exists*/0, NULL);
+			hostdir_from_pdp_fs(_this);
+			update_snapshot = 1;
+		}
+	} else {
+		// not readonly: update hostdir and PDP file system
+		for (i = 0; i < _this->snapshot.file_count; i++) {
+			hostdir_file_t *f = &_this->snapshot.file[i];
+			// 16 cases. The cases when one side is unchanged are easy
+			if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_unchanged) {
+				// do nothing
+			} else if (f->state[side_pdp] == fs_unchanged
+					&& f->state[side_host] == fs_missing) {
+				if (f->pdp_fixed)
+					hostdir_file_copy_from_pdp(_this, f); // restore
+				else
+					update_pdp = 1; // update PDP from hostdir
+			} else if (f->state[side_pdp] == fs_unchanged
+					&& f->state[side_host] == fs_changed) {
 				update_pdp = 1; // update PDP from hostdir
-		} else if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_changed) {
-			update_pdp = 1; // update PDP from hostdir
-		} else if (f->state[side_pdp] == fs_unchanged && f->state[side_host] == fs_created) {
-			update_pdp = 1; // update PDP from hostdir
+			} else if (f->state[side_pdp] == fs_unchanged
+					&& f->state[side_host] == fs_created) {
+				update_pdp = 1; // update PDP from hostdir
 
-		} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_unchanged) {
-			hostdir_file_delete(_this, f);
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_missing) {
-			// no need to update hostdir from pdp
-			update_snapshot = 1; // but delete file from snapshot!
-		} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_changed) {
-			if (_this->pdp_priority)
+			} else if (f->state[side_pdp] == fs_missing
+					&& f->state[side_host] == fs_unchanged) {
 				hostdir_file_delete(_this, f);
-			else
-				update_pdp = 1;
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_created) {
-			// the file was created on host and is not yet on PDP
-			update_pdp = 1; // force reload
-		} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_unchanged) {
-			hostdir_file_copy_from_pdp(_this, f);
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_missing) {
-			if (f->pdp_fixed || _this->pdp_priority)
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_missing) {
+				// no need to update hostdir from pdp
+				update_snapshot = 1; // but delete file from snapshot!
+			} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_changed) {
+				if (_this->pdp_priority)
+					hostdir_file_delete(_this, f);
+				else
+					update_pdp = 1;
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_missing && f->state[side_host] == fs_created) {
+				// the file was created on host and is not yet on PDP
+				update_pdp = 1; // force reload
+			} else if (f->state[side_pdp] == fs_changed
+					&& f->state[side_host] == fs_unchanged) {
 				hostdir_file_copy_from_pdp(_this, f);
-			else
-				update_pdp = 1;
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_changed) {
-			if (_this->pdp_priority)
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_missing) {
+				if (f->pdp_fixed || _this->pdp_priority)
+					hostdir_file_copy_from_pdp(_this, f);
+				else
+					update_pdp = 1;
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_changed) {
+				if (_this->pdp_priority)
+					hostdir_file_copy_from_pdp(_this, f);
+				else
+					update_pdp = 1;
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_created) {
+				if (_this->pdp_priority)
+					hostdir_file_copy_from_pdp(_this, f);
+				else
+					update_pdp = 1;
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_created
+					&& f->state[side_host] == fs_unchanged) {
 				hostdir_file_copy_from_pdp(_this, f);
-			else
-				update_pdp = 1;
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_changed && f->state[side_host] == fs_created) {
-			if (_this->pdp_priority)
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_created && f->state[side_host] == fs_missing) {
+				// new on PDP
 				hostdir_file_copy_from_pdp(_this, f);
-			else
-				update_pdp = 1;
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_created && f->state[side_host] == fs_unchanged) {
-			hostdir_file_copy_from_pdp(_this, f);
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_created && f->state[side_host] == fs_missing) {
-			// new on PDP
-			hostdir_file_copy_from_pdp(_this, f);
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_created && f->state[side_host] == fs_changed) {
-			if (_this->pdp_priority)
-				hostdir_file_copy_from_pdp(_this, f);
-			else
-				update_pdp = 1;
-			update_snapshot = 1;
-		} else if (f->state[side_pdp] == fs_created && f->state[side_host] == fs_created) {
-			if (_this->pdp_priority)
-				hostdir_file_copy_from_pdp(_this, f);
-			else
-				update_pdp = 1;
-			update_snapshot = 1;
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_created && f->state[side_host] == fs_changed) {
+				if (_this->pdp_priority)
+					hostdir_file_copy_from_pdp(_this, f);
+				else
+					update_pdp = 1;
+				update_snapshot = 1;
+			} else if (f->state[side_pdp] == fs_created && f->state[side_host] == fs_created) {
+				if (_this->pdp_priority)
+					hostdir_file_copy_from_pdp(_this, f);
+				else
+					update_pdp = 1;
+				update_snapshot = 1;
+			}
 		}
 	}
 	if (update_pdp) {
@@ -651,13 +675,13 @@ int hostdir_sync(hostdir_t *_this) {
 		if (f)
 			hostdir_file_copy_from_pdp(_this, f);
 		if (opt_verbose)
-			info("Updated PDP image with shared dir \"%s\"", _this->path);
+			info("Updated PDP image with shared dir \"%s\".", _this->path);
 	}
 	if (update_pdp || update_snapshot) {
 		// if file was deleted
 		snapshot_init(_this);
 		if (opt_verbose)
-			info("Scanned content of shared dir \"%s\"", _this->path);
+			info("Scanned content of shared dir \"%s\".", _this->path);
 	}
 
 	return ERROR_OK;
