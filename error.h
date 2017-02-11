@@ -67,9 +67,10 @@ extern int error_code ;
 void error_clear(void) ;
 int error_set(int code, char *fmt, ...) ;
 
-void fatal (char *, ...);
-void error (char *, ...);
-void info (char *, ...);
+void fatal(char *, ...);
+void error(char *, ...);
+void warning(char *, ...);
+void info(char *, ...);
 
 
 #endif

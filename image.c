@@ -190,12 +190,22 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 					"Unit %d: image_open cannot read %d bytes from \"%s\"", _this->unit,
 					_this->host_fattr.st_size, _this->host_fpath);
 		_this->changed = 0; // is in sync with disc file
+
+		/* modify locally, if no empty file */
+		if (_this->dec_filesystem != fsNONE && !is_memset(_this->data, 0, _this->data_size)) {
+			filesystem_t *pdp_fs = filesystem_create(_this->dec_filesystem, _this->dec_device,
+					_this->readonly, _this->data, _this->data_size, NULL);
+			filesystem_parse(pdp_fs);
+			filesystem_patch(pdp_fs); // RT-11: change DD.SYS
+			filesystem_destroy(pdp_fs);
+		}
+
 	} else {
 		// new file created
 		// init mem. even if later file is loaded?
 		switch (_this->dec_filesystem) {
 		case fsNONE:
-			info("unit %d: zero'd new tape on '%s'", _this->unit, _this->host_fpath);
+			info("Unit %d: zero'd new tape on '%s'", _this->unit, _this->host_fpath);
 			break;
 		case fsXXDP:
 		case fsRT11: {
@@ -206,8 +216,8 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 			if (filesystem_render(pdp_fs))
 				return error_set(error_code, "Creating empty file system");
 			filesystem_destroy(pdp_fs);
-			info("unit %d: initialize %s directory on '%s'", _this->unit,
-					filesystem_name(pdp_fs->type), _this->host_fpath);
+			info("Unit %d: initialize empty %s file system on \"%s\"", _this->unit,
+					filesystem_name(_this->dec_filesystem), _this->host_fpath);
 		}
 			break;
 		}
@@ -229,7 +239,20 @@ static int image_hostfile_save(image_t *_this) {
 	if (fd < 0)
 		return error_set(ERROR_HOSTFILE, "Unit %d: image_save cannot open \"%s\"", _this->unit,
 				_this->host_fpath);
-	write(fd, _this->data, _this->data_size);
+
+	/* undo local changes, save, restore local changes */
+	if (_this->dec_filesystem != fsNONE) {
+		filesystem_t *pdp_fs = filesystem_create(_this->dec_filesystem, _this->dec_device,
+				_this->readonly, _this->data, _this->data_size, NULL);
+		filesystem_parse(pdp_fs);
+		filesystem_unpatch(pdp_fs); // RT-11: restore DD.SYS
+
+		write(fd, _this->data, _this->data_size);
+
+		filesystem_patch(pdp_fs); // RT-11: change DD.SYS
+		filesystem_destroy(pdp_fs);
+	} else
+		write(fd, _this->data, _this->data_size);
 	close(fd);
 	return 0;
 }
@@ -247,7 +270,7 @@ int image_open(image_t *_this, int shared, int readonly, int allowcreate, char *
 		_this->pdp_filesystem = filesystem_create(dec_filesystem, _this->dec_device,
 				_this->readonly, _this->data, _this->data_size, _this->changedblocks);
 
-		_this->hostdir = hostdir_create(_this->host_fpath, _this->pdp_filesystem);
+		_this->hostdir = hostdir_create(_this->unit, _this->host_fpath, _this->pdp_filesystem);
 
 		if (hostdir_load(_this->hostdir, allowcreate, &filecreated))
 			return error_set(error_code, "Opening shared directory");

@@ -109,8 +109,8 @@ void boolarray_print_diag(boolarray_t *_this, FILE *stream, int bitcount, char *
 		start = end;
 	}
 	if (!any)
-		fprintf(stderr, "no bits set.\n");
+		fprintf(stream, "no bits set.\n");
 	else
-		fprintf(stderr, ".\n");
+		fprintf(stream, ".\n");
 }
 

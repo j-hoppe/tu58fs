@@ -6,7 +6,6 @@
 PROG = tu58fs
 
 # compiler flags and libraries
-#CFLAGS = -I. -Wall -c 
 CC_DBG_FLAGS = -ggdb3 -O0
 LDFLAGS = -lpthread -lrt
 

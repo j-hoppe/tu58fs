@@ -371,7 +371,7 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 		// 2 blocks. first predefined, fetch 2nd from image
 		// Prefer MFD data over linked list scan, why?
 		if (_this->mfd_variety != 1)
-			fprintf(ferr, "MFD is 2 blocks, variety 1 expected, but variety %d defined",
+			warning("MFD is 2 blocks, variety 1 expected, but variety %d defined",
 					_this->mfd_variety);
 		/*
 		 _this->mfd_blocklist->count = 2;
@@ -404,7 +404,7 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 	} else if (_this->mfd_blocklist->count == 1) {
 		// var 2: "MFD1/2" RL01/2 ?
 		if (_this->mfd_variety != 2)
-			fprintf(ferr, "MFD is 1 blocks, variety 2 expected, but variety %d defined",
+			warning( "MFD is 1 blocks, variety 2 expected, but variety %d defined",
 					_this->mfd_variety);
 
 		mfdblknr = _this->mfd_blocklist->blocknr[0];
@@ -415,7 +415,7 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 		// verify len
 		n = xxdp_image_get_word(_this, mfdblknr, 2);
 		if (n != _this->ufd_blocklist->count)
-			fprintf(ferr, "UFD block count is %u, but %d in MFD1/2",
+			warning( "UFD block count is %u, but %d in MFD1/2",
 					_this->ufd_blocklist->count, n);
 		// best choice is len of disk list
 
@@ -425,36 +425,34 @@ static void parse_mfd(xxdp_filesystem_t *_this) {
 		// verify len
 		n = xxdp_image_get_word(_this, mfdblknr, 4);
 		if (n != _this->bitmap->blocklist.count)
-			fprintf(ferr, "Bitmap block count is %u, but %d in MFD1/2\n",
+			warning("Bitmap block count is %u, but %d in MFD1/2",
 					_this->bitmap->blocklist.count, n);
 
 		// total num of blocks
 		n = _this->blockcount = xxdp_image_get_word(_this, mfdblknr, 7);
 		if (n != _this->blockcount)
-			fprintf(ferr, "Device blockcount is %u in RADI, but %d in MFD1/2\n",
+			warning("Device blockcount is %u in RADI, but %d in MFD1/2",
 					_this->blockcount, n);
 
 		n = _this->preallocated_blockcount = xxdp_image_get_word(_this, mfdblknr, 8);
 		if (n != _this->radi.prealloc_blocks_num)
-			fprintf(ferr, "Device preallocated blocks are %u in RADI, but %d in MFD1/2\n",
+			warning("Device preallocated blocks are %u in RADI, but %d in MFD1/2",
 					_this->radi.prealloc_blocks_num, n);
 
 		n = _this->interleave = xxdp_image_get_word(_this, mfdblknr, 9);
 		if (n != _this->radi.interleave)
-			fprintf(ferr, "Device interleave is %u in RADI, but %d in MFD1/2\n",
+			warning("Device interleave is %u in RADI, but %d in MFD1/2",
 					_this->radi.interleave, n);
 
 		n = _this->monitor->blocknr = xxdp_image_get_word(_this, mfdblknr, 11);
 		if (n != _this->radi.monitor_block)
-			fprintf(ferr, "Monitor core start is %u in RADI, but %d in MFD1/2\n",
+			warning("Monitor core start is %u in RADI, but %d in MFD1/2",
 					_this->radi.monitor_block, n);
 		_this->monitor->blockcount = _this->preallocated_blockcount - _this->monitor->blocknr;
 
-		fprintf(ferr, "Warning: position of bad block file not yet evaluated\n");
-	} else {
-		fprintf(ferr, "Invalid block count in  MFD: %d\n", _this->mfd_blocklist->count);
-		exit(1);
-	}
+		warning("Position of bad block file not yet evaluated");
+	} else
+	fatal("Invalid block count in MFD: %d", _this->mfd_blocklist->count);
 }
 
 // bitmap blocks known, produce "used[]" flag array
@@ -543,8 +541,7 @@ static int parse_ufd(xxdp_filesystem_t *_this) {
 			// check: filelen?
 			f->block_count = xxdp_image_get_word(_this, blknr, file_entry_start_wordnr + 6);
 			if (f->block_count != f->blocklist.count)
-				fprintf(ferr,
-						"XXDP UFD read: file %s.%s: saved file size is %d, blocklist len is %d.\n",
+				warning("XXDP UFD read: file %s.%s: saved file size is %d, blocklist len is %d.\n",
 						f->filnam, f->ext, f->block_count, f->blocklist.count);
 
 			// check: lastblock?
@@ -693,10 +690,8 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 		_this->mfd_blocklist->count = 1;
 		_this->mfd_blocklist->blocknr[0] = _this->radi.mfd1;
 		_this->bitmap->used[_this->radi.mfd1] = 1;
-	} else {
-		fprintf(ferr, "MFD variety must be 1 or 2\n");
-		exit(1);
-	}
+	} else
+	fatal("MFD variety must be 1 or 2");
 	// UFD
 	// starts in preallocated area, may extend into freespace
 	n = NEEDED_BLOCKS(XXDP_UFD_ENTRIES_PER_BLOCK, _this->file_count);
@@ -733,11 +728,11 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 // fprintf(stderr,"layout(): file %d %s.%s start from %d, needs %d blocks\n", i, f->filnam, f->ext, blknr, n);
 		for (j = 0; !overflow && j < n; j++) {
 			if (j >= sizeof(f->blocklist.blocknr)) {
-				fprintf(ferr, "File %s.%s too large, uses more than %d blocks", f->filnam,
+ 			error_set(ERROR_FILESYSTEM_OVERFLOW, "File %s.%s too large, uses more than %d blocks", f->filnam,
 						f->ext, (int) sizeof(f->blocklist.blocknr));
 				overflow = 1;
 			} else if ((int) blknr >= _this->blockcount) {
-				fprintf(ferr, "File system overflow, can hold max %d blocks.",
+				error_set(ERROR_FILESYSTEM_OVERFLOW, "File system overflow, can hold max %d blocks.",
 						_this->blockcount);
 				overflow = 1;
 			} else {
@@ -748,7 +743,7 @@ static int xxdp_filesystem_layout(xxdp_filesystem_t *_this) {
 		f->block_count = n;
 		f->blocklist.count = n;
 		if (overflow)
-			return -1;
+			return ERROR_FILESYSTEM_OVERFLOW;
 	}
 
 	// expand file system size if needed.
@@ -851,10 +846,8 @@ static void render_mfd(xxdp_filesystem_t *_this) {
 		xxdp_image_set_word(_this, blknr, 14, 0);
 		xxdp_image_set_word(_this, blknr, 15, 0);
 		xxdp_image_set_word(_this, blknr, 16, 0);
-	} else {
-		fprintf(ferr, "MFD variety must be 1 or 2\n");
-		exit(1);
-	}
+	} else
+		fatal("MFD variety must be 1 or 2");
 }
 
 static void render_ufd(xxdp_filesystem_t *_this) {

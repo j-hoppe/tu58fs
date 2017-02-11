@@ -184,6 +184,12 @@ int rt11_filesystem_file_stream_add(rt11_filesystem_t *_this, char *hostfname, c
 
 int rt11_filesystem_render(rt11_filesystem_t *_this);
 
+// write image blocksize into DD[X].SYS
+int rt11_filesystem_patch(rt11_filesystem_t *_this) ;
+// restore original DD[X].SYS
+int rt11_filesystem_unpatch(rt11_filesystem_t *_this) ;
+
+
 rt11_file_t *rt11_filesystem_file_get(rt11_filesystem_t *_this, int fileidx);
 
 void rt11_filesystem_print_dir(rt11_filesystem_t *_this, FILE *stream);

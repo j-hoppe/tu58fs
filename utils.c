@@ -46,8 +46,11 @@
 #include <stdint.h>
 #include <assert.h>
 #include <time.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+
+#include "error.h"
 #include "utils.h"	// own
 
 //
@@ -87,8 +90,9 @@ char *cur_time_text() {
 	return result;
 }
 
-// is memory all set with a coinst value?
-// test of memset()
+// is memory all set with a const value?
+// reverse oeprator to memset()
+// size == 0: true
 int is_memset(void *ptr, uint8_t val, uint32_t size) {
 	for (; size; ptr++, size--)
 		if (*(uint8_t *) ptr != val)
@@ -112,6 +116,21 @@ int is_fileset(char *fpath, uint8_t val, uint32_t offset) {
 	fclose(f);
 	return result;
 }
+
+
+// write binary data into file
+int file_write(char *fpath, uint8_t *data, unsigned size) {
+	int fd;
+	// O_TRUNC: set to length 0
+	fd = open(fpath, O_CREAT | O_TRUNC | O_RDWR, 0666);
+	// or f = fopen(fpath, "w") ;
+	if (fd < 0)
+		return error_set(ERROR_HOSTFILE, "File write: can not open \"%s\"", fpath);
+	write(fd, data, size);
+	close(fd);
+	return ERROR_OK;
+}
+
 
 // read a string and separate into tokens
 // return: count

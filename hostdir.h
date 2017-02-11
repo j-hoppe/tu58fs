@@ -75,11 +75,13 @@ typedef struct {
 
 // state of host dir
 typedef struct {
+	struct hostdir_struct *hostdir ; // uplink
 	int file_count;
 	hostdir_file_t file[HOSTDIR_MAX_FILES];
 } hostdir_snapshot_t;
 
-typedef struct {
+typedef struct hostdir_struct {
+	int	unit ; //  which TU58 device?
 	char path[4096];  // path to host dir
 
 	// PDP image
@@ -92,7 +94,7 @@ typedef struct {
 	int pdp_priority ; // 1: file state in PDP image overrides hostdir changes
 } hostdir_t;
 
-hostdir_t *hostdir_create(char *path, filesystem_t *pdp_fs) ;
+hostdir_t *hostdir_create(int unit, char *path, filesystem_t *pdp_fs) ;
 void hostdir_destroy(hostdir_t *_this);
 
 int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created);

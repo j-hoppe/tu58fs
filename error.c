@@ -46,7 +46,6 @@
 #include "utils.h"
 #include "error.h"  // own
 
-
 FILE *ferr = NULL; // variable error stream
 
 // global last raised error
@@ -80,47 +79,48 @@ int error_set(int code, char *fmt, ...) {
 	return error_code;
 }
 
-
-//
 // print an info message and return
-//
 void info(char *fmt, ...) {
 	va_list args;
 	if (!opt_background) {
 		va_start(args, fmt);
-		fprintf(ferr, "[%s] info: ", cur_time_text());
+		fprintf(ferr, "[%s info]  ", cur_time_text());
 		vfprintf(ferr, fmt, args);
 		fprintf(ferr, "\n");
 		va_end(args);
 	}
-	return;
 }
 
-//
+// print an warning message and return
+void warning(char *fmt, ...) {
+	va_list args;
+	if (!opt_background) {
+		va_start(args, fmt);
+		fprintf(ferr, "[%s Warning]  ", cur_time_text());
+		vfprintf(ferr, fmt, args);
+		fprintf(ferr, "\n");
+		va_end(args);
+	}
+}
+
 // print an error message and return
-//
 void error(char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	fprintf(ferr, "[%s] ERROR: ", cur_time_text());
+	fprintf(ferr, "[%s ERROR]  ", cur_time_text());
 	vfprintf(ferr, fmt, args);
 	fprintf(ferr, "\n");
 	va_end(args);
-	return;
 }
 
-//
 // print an error message and die
-//
 void fatal(char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);
-	fprintf(ferr, "[%s] FATAL: ", cur_time_text());
+	fprintf(ferr, "[%s FATAL]  ", cur_time_text());
 	vfprintf(ferr, fmt, args);
 	fprintf(ferr, "\n");
 	va_end(args);
 	exit(EXIT_FAILURE);
 }
-
-
 

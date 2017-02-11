@@ -134,7 +134,8 @@ static void snapshot_print(hostdir_snapshot_t *_this, FILE *stream, int all) {
 		char *msg;
 		f = &_this->file[i];
 		if (all || f->state[side_pdp] != fs_unchanged || f->state[side_host] != fs_unchanged) {
-			info("%3d: %10s %s, %s.", i, f->pdp_filnam_ext_stream,
+			info("Unit %d, file %3d: %10s %s, %s.", _this->hostdir->unit,
+				i, f->pdp_filnam_ext_stream,
 					state_text(side_pdp, f->state[side_pdp]),
 					state_text(side_host, f->state[side_host]));
 		}
@@ -217,7 +218,7 @@ static int snapshot_scan_pdpimage(hostdir_t *_this) {
 
 	// analyse an image
 	if (filesystem_parse(_this->pdp_fs))
-		return error_set(error_code, "Scanning PDP image");
+		return error_set(error_code, "Uint %d: Scanning PDP image", _this->unit);
 	// if PDP file system was created with block change map, now changed files are marked
 	for (i = -FILESYSTEM_MAX_SPECIALFILE_COUNT; i < *_this->pdp_fs->file_count; i++) {
 		file_t *fpdp = filesystem_file_get(_this->pdp_fs, i); // include bootblock & monitor
@@ -281,24 +282,24 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 		// not found
 		if (allowcreate) {
 			if (mkdir(_this->path, 0777)) { // open rw for all
-				error("Creation of directory \"%s\" failed in \"%s\"", _this->path,
+				error("Unit %d: Creation of directory \"%s\" failed in \"%s\"", _this->unit, _this->path,
 						getcwd(pathbuff, sizeof(pathbuff)));
 				return -1;
 			}
 			if (created)
 				*created = 1;
 		} else {
-			error("Directory \"%s\" not found in \"%s\", creation forbidden", _this->path,
+			error("Unit %d: Directory \"%s\" not found in \"%s\", creation forbidden", _this->unit, _this->path,
 					getcwd(pathbuff, sizeof(pathbuff)));
 		}
 	}
 	// again
 	if (stat(_this->path, &sb) || !S_ISDIR(sb.st_mode))
-		return error_set(ERROR_HOSTDIR, "\"%s\" is no directory", _this->path);
+		return error_set(ERROR_HOSTDIR, "Unit %d: \"%s\" is no directory", _this->unit, _this->path);
 
 	// has it subdirs? iterate through
 	if ((dfd = opendir(_this->path)) == NULL)
-		return error_set(ERROR_HOSTDIR, "Can't open \"%s\"", _this->path);
+		return error_set(ERROR_HOSTDIR, "Unit %d: Can't open \"%s\"", _this->unit, _this->path);
 
 	ok = 1;
 	while (ok && (dp = readdir(dfd)) != NULL) {
@@ -311,7 +312,7 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 	}
 	closedir(dfd);
 	if (!ok)
-		return error_set(ERROR_HOSTDIR, "Dir \"%s\" contains subdirs or strange stuff\n",
+		return error_set(ERROR_HOSTDIR, "Unit %d: Dir \"%s\" contains subdirs or strange stuff\n", _this->unit,
 				_this->path);
 
 	// can I write to it?
@@ -326,7 +327,7 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 	if (remove(pathbuff))
 		ok = 0;
 	if (!ok)
-		return error_set(ERROR_HOSTDIR, "Can't work with dir \"%s\"\n", _this->path);
+		return error_set(ERROR_HOSTDIR, "Unit %d: Can't work with dir \"%s\"", _this->unit, _this->path);
 
 	sprintf(pathbuff, "%s/%s", _this->path, "$VOLUM.INF");
 	remove(pathbuff);
@@ -347,18 +348,6 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 	return ERROR_OK;
 }
 
-// write binary data into file
-int file_write(char *fpath, uint8_t *data, unsigned size) {
-	int fd;
-	// O_TRUNC: set to length 0
-	fd = open(fpath, O_CREAT | O_TRUNC | O_RDWR, 0666);
-	// or f = fopen(fpath, "w") ;
-	if (fd < 0)
-		return error_set(ERROR_HOSTFILE, "File write: cannot open \"%s\"", fpath);
-	write(fd, data, size);
-	close(fd);
-	return ERROR_OK;
-}
 
 // write file streams from filled filesystem into hostdir
 // fpath must be "prepared()"
@@ -392,7 +381,7 @@ int hostdir_from_pdp_fs(hostdir_t *_this) {
 }
 
 // add a file to the PDP filesystem
-static int pdp_fs_file_add(filesystem_t *fs, char *fpath, char *fname) {
+static int pdp_fs_file_add(hostdir_t *_this, filesystem_t *fs, char *fpath, char *fname) {
 	char pathbuff[4096];
 	struct stat sb;
 	uint8_t *data;
@@ -401,11 +390,11 @@ static int pdp_fs_file_add(filesystem_t *fs, char *fpath, char *fname) {
 
 	sprintf(pathbuff, "%s/%s", fpath, fname);
 	if (stat(pathbuff, &sb))
-		return error_set(ERROR_HOSTFILE, "Can get statistics for \"%s\"", pathbuff);
+		return error_set(ERROR_HOSTFILE, "Unit %d: Can get statistics for \"%s\"", _this->unit, pathbuff);
 
 	f = fopen(pathbuff, "r");
 	if (!f)
-		return error_set(ERROR_HOSTFILE, "Can not open \"%s\"\n", pathbuff);
+		return error_set(ERROR_HOSTFILE, "Unit %d: Can not open \"%s\"", _this->unit, pathbuff);
 	// use stat size to allocate data buffer
 	data_size = sb.st_size;
 	data = malloc(data_size);
@@ -413,7 +402,7 @@ static int pdp_fs_file_add(filesystem_t *fs, char *fpath, char *fname) {
 	fclose(f);
 
 	if (n != data_size)
-		return error_set(ERROR_HOSTFILE, "Read %d bytes instead of %d from \"%s\"\n", n,
+		return error_set(ERROR_HOSTFILE, "Unit %d: Read %d bytes instead of %d from \"%s\"", _this->unit, n,
 				data_size, pathbuff);
 
 	// add to filesystem
@@ -455,8 +444,8 @@ int hostdir_to_pdp_fs(hostdir_t *_this) {
 	// add all files
 	filesystem_init(_this->pdp_fs);
 	for (i = 0; i < filecount; i++) {
-		if (pdp_fs_file_add(_this->pdp_fs, _this->path, names[i]))
-			return error_set(error_code, "Host dir to PDP filesystem");
+		if (pdp_fs_file_add(_this, _this->pdp_fs, _this->path, names[i]))
+			return error_set(error_code, "Unit %d: Host dir to PDP filesystem", _this->unit);
 	}
 
 	return ERROR_OK;
@@ -464,12 +453,14 @@ int hostdir_to_pdp_fs(hostdir_t *_this) {
 
 // link to PDP image and directory
 // PDP filesystem must have been initialized with device type, image data etc.
-hostdir_t *hostdir_create(char *path, filesystem_t *pdp_fs) {
+hostdir_t *hostdir_create(int unit, char *path, filesystem_t *pdp_fs) {
 	hostdir_t *_this;
 	_this = malloc(sizeof(hostdir_t));
+	_this->unit = unit ;
 	strcpy(_this->path, path);
 	_this->pdp_fs = pdp_fs;
 
+	_this->snapshot.hostdir = _this ;
 	_this->snapshot.file_count = 0;
 	return _this;
 }
@@ -497,11 +488,11 @@ static int hostdir_image_reload(hostdir_t *_this) {
 int hostdir_load(hostdir_t *_this, int allowcreate, int *created) {
 
 	if (hostdir_prepare(_this, /*wipe*/0, allowcreate, created)) {
-		error("hostdir_prepare failed");
+		error("Unit %d: hostdir_prepare() failed", _this->unit);
 		return -1;
 	}
 	if (opt_verbose && *created)
-		info("Host directory \"%s\" created", _this->path);
+		info("Unit %d: Host directory \"%s\" created", _this->unit, _this->path);
 
 	return hostdir_image_reload(_this);
 }
@@ -510,7 +501,7 @@ int hostdir_load(hostdir_t *_this, int allowcreate, int *created) {
 // former content of hostdir is lost
 int hostdir_save(hostdir_t *_this) {
 	if (hostdir_prepare(_this, /*wipe*/1, 0, NULL))
-		return error_set(error_code, "Saving host dir");
+		return error_set(error_code, "Unit %d: Saving host dir", _this->unit);
 	filesystem_init(_this->pdp_fs);
 	filesystem_parse(_this->pdp_fs); // image => filesystem
 	hostdir_from_pdp_fs(_this); // filesystem => dir
@@ -534,7 +525,7 @@ static void hostdir_file_copy_from_pdp(hostdir_t *_this, hostdir_file_t *f) {
 	if (!dbg_simulate)
 		file_write(pathbuff, stream->data, stream->data_size);
 	if (opt_verbose)
-		info("Copied file \"%s\" from PDP to shared dir.", pathbuff);
+		info("Unit %d: Copied file \"%s\" from PDP to shared dir.", _this->unit, pathbuff);
 }
 
 // delete a file on the hostdir
@@ -544,7 +535,7 @@ static void hostdir_file_delete(hostdir_t *_this, hostdir_file_t *f) {
 	if (!dbg_simulate)
 		remove(pathbuff);
 	if (opt_verbose)
-		info("Deleted file \"%s\" on shared dir.", pathbuff);
+		info("Unit %d: Deleted file \"%s\" on shared dir.", _this->unit, pathbuff);
 }
 
 int hostdir_sync(hostdir_t *_this) {
@@ -579,7 +570,7 @@ int hostdir_sync(hostdir_t *_this) {
 		}
 		if (hostdir_changed) {
 			// short code: rebuild whole hostdir
-			info("Device is readonly, reverting changes in shared dir \"%s\".", _this->path) ;
+			info("Unit %d: Device is readonly, reverting changes in shared dir \"%s\".", _this->unit, _this->path) ;
 			hostdir_prepare(_this, /*wipe*/1, /*exists*/0, NULL);
 			hostdir_from_pdp_fs(_this);
 			update_snapshot = 1;
@@ -675,13 +666,13 @@ int hostdir_sync(hostdir_t *_this) {
 		if (f)
 			hostdir_file_copy_from_pdp(_this, f);
 		if (opt_verbose)
-			info("Updated PDP image with shared dir \"%s\".", _this->path);
+			info("Unit %d: Updated PDP image with shared dir \"%s\".", _this->unit, _this->path);
 	}
 	if (update_pdp || update_snapshot) {
 		// if file was deleted
 		snapshot_init(_this);
 		if (opt_verbose)
-			info("Scanned content of shared dir \"%s\".", _this->path);
+			info("Unit %d: Scanned content of shared dir \"%s\".", _this->unit, _this->path);
 	}
 
 	return ERROR_OK;

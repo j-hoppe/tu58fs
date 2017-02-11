@@ -56,8 +56,8 @@ char *filesystem_name(filesystem_type_t type) {
 	return NULL;
 }
 
-filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type,
-	int readonly,	uint8_t *image_data, uint32_t image_data_size, boolarray_t *changedblocks) {
+filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type, int readonly,
+		uint8_t *image_data, uint32_t image_data_size, boolarray_t *changedblocks) {
 	filesystem_t *_this;
 	_this = malloc(sizeof(filesystem_t));
 	_this->type = type;
@@ -222,6 +222,30 @@ int filesystem_render(filesystem_t *_this) {
 		return xxdp_filesystem_render(_this->xxdp);
 	case fsRT11:
 		return rt11_filesystem_render(_this->rt11);
+	default:
+		return error_set(ERROR_FILESYSTEM_INVALID, "Filesystem not supported");
+	}
+}
+
+// path file systemobjects in the image: DD.SYS on RT-11
+int filesystem_patch(filesystem_t *_this) {
+	switch (_this->type) {
+	case fsXXDP:
+		return ERROR_OK; // nothing to do
+	case fsRT11:
+		return rt11_filesystem_patch(_this->rt11);
+	default:
+		return error_set(ERROR_FILESYSTEM_INVALID, "Filesystem not supported");
+	}
+}
+
+// undo patches
+int filesystem_unpatch(filesystem_t *_this) {
+	switch (_this->type) {
+	case fsXXDP:
+		return ERROR_OK; // nothing to do
+	case fsRT11:
+		return rt11_filesystem_unpatch(_this->rt11);
 	default:
 		return error_set(ERROR_FILESYSTEM_INVALID, "Filesystem not supported");
 	}

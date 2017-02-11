@@ -223,6 +223,10 @@ static void rt11_filesystem_mark_filestream_as_changed(rt11_filesystem_t *_this,
 static void rt11_filesystem_mark_filestreams_as_changed(rt11_filesystem_t *_this) {
 	int i;
 	rt11_blocknr_t blknr;
+
+	if (_this->image_changed_blocks == NULL)
+		return;
+
 	// boolarray_print_diag(_this->image_changed_blocks,stderr, _this->blockcount, "RT11") ;
 	// bootblock
 	rt11_filesystem_mark_filestream_as_changed(_this, _this->bootblock);
@@ -309,12 +313,9 @@ void rt11_filesystem_init(rt11_filesystem_t *_this) {
 	 _this->blockcount = _this->radi->block_count;
 	 */
 
-	if (_this->blockcount < 0) {
-		fprintf(stderr,
-				"rt11_filesystem_init(): RT-11 blockcount for device %s not yet defined!",
+	if (_this->blockcount < 0)
+		fatal("rt11_filesystem_init(): RT-11 blockcount for device %s not yet defined!",
 				_this->device_info->device_name);
-		exit(1);
-	}
 
 	// trunc large devices, only 64K blocks addressable = 32MB
 	// no support for partitioned disks at the moment
@@ -370,11 +371,8 @@ static int rt11_filesystem_calc_block_use(rt11_filesystem_t *_this, int test_dat
 	int used_file_blocks;
 	int available_blocks;
 
-	if (_this->dir_entry_extra_bytes > 16) {
-		fprintf(stderr, "Extra bytes in directory %d is > 16 ... how much is allowed?\n",
-				_this->dir_entry_extra_bytes);
-		exit(1);
-	}
+	if (_this->dir_entry_extra_bytes > 16)
+		fatal("Extra bytes in directory %d is > 16 ... how much is allowed?", _this->dir_entry_extra_bytes);
 
 	// 1) calc segments & blocks needed for existing files
 	used_file_blocks = 0;
@@ -462,12 +460,25 @@ static int rt11_filesystem_calc_block_use(rt11_filesystem_t *_this, int test_dat
 	return ERROR_OK;
 }
 
+// filnam, ext: strict 6/3 chars, padded with spaces
+static rt11_file_t *rt11_filesystem_file_by_name(rt11_filesystem_t *_this, char *filnam,
+		char *ext) {
+	rt11_file_t *f;
+	int i;
+	for (i = 0; i < _this->file_count; i++) {
+		f = _this->file[i];
+		if (!strcasecmp(filnam, f->filnam) && !strcasecmp(ext, f->ext))
+			return f;
+	}
+	return NULL;
+}
+
 /**************************************************************
  * _parse()
  * convert byte array of image into logical objects
  **************************************************************/
 
-static void parse_homeblock(rt11_filesystem_t *_this) {
+static int parse_homeblock(rt11_filesystem_t *_this) {
 	uint16_t w;
 	char *s;
 	int i;
@@ -481,7 +492,9 @@ static void parse_homeblock(rt11_filesystem_t *_this) {
 	_this->pack_cluster_size = rt11_image_get_word_at(_this, 1, 0722);
 	_this->first_dir_blocknr = rt11_image_get_word_at(_this, 1, 0724);
 	if (_this->first_dir_blocknr != 6)
-		fprintf(ferr, "first_dir_blocknr expected 6, is %d\n", _this->first_dir_blocknr);
+		return error_set(ERROR_FILESYSTEM_FORMAT,
+				"parse_homeblock(): first_dir_blocknr expected 6, is %d\n",
+				_this->first_dir_blocknr);
 	_this->first_dir_blocknr = rt11_image_get_word_at(_this, 1, 0724);
 	w = rt11_image_get_word_at(_this, 1, 0726);
 	strcpy(_this->system_version, rad50_decode(w));
@@ -507,13 +520,14 @@ static void parse_homeblock(rt11_filesystem_t *_this) {
 	 fprintf(ferr, "Home block checksum error: is 0x%x, expected 0x%x\n", sum,
 	 (int) _this->homeblock_chksum);
 	 */
+	return ERROR_OK;
 }
 
 // popint to start of  directory segment [i]
 // segment[0] at directory_startblock (6), and 1 segment = 2 blocks. i starts with 1.
 #define DIR_SEGMENT(_this,i)  ( (uint16_t *) ((_this)->image_data+ (_this)->first_dir_blocknr*RT11_BLOCKSIZE +(((i)-1)*2*RT11_BLOCKSIZE)) )
 
-static void parse_directory(rt11_filesystem_t *_this) {
+static int parse_directory(rt11_filesystem_t *_this) {
 	uint16_t *ds; // ptr to start of directory segment
 	uint32_t ds_nr = 0; // runs from 1
 	uint32_t ds_next_nr = 0;
@@ -536,16 +550,16 @@ static void parse_directory(rt11_filesystem_t *_this) {
 		w = IMAGE_GET_WORD(ds + 0);
 		if (ds_nr == 1)
 			_this->dir_total_seg_num = w;
-		else if (w != _this->dir_total_seg_num) {
-			fprintf(ferr,
+		else if (w != _this->dir_total_seg_num)
+			return error_set(ERROR_FILESYSTEM_FORMAT,
 					"parse_directory(): ds_header_total_seg_num in entry %d different from entry 1\n",
 					ds_nr);
-		}
 		if (ds_nr == 1)
 			_this->dir_max_seg_nr = IMAGE_GET_WORD(ds + 2);
 		ds_next_nr = IMAGE_GET_WORD(ds + 1); // nr of next segment
 		if (ds_next_nr > _this->dir_max_seg_nr)
-			fprintf(ferr, "parse_directory(): next segment nr %d > maximum %d\n", ds_next_nr,
+			return error_set(ERROR_FILESYSTEM_FORMAT,
+					"parse_directory(): next segment nr %d > maximum %d\n", ds_next_nr,
 					_this->dir_max_seg_nr);
 		de_data_blocknr = IMAGE_GET_WORD(ds + 4);
 		if (ds_nr == 1) {
@@ -617,11 +631,10 @@ static void parse_directory(rt11_filesystem_t *_this) {
 					}
 				}
 
-				if (_this->file_count >= RT11_MAX_FILES_PER_IMAGE) {
-					fprintf(ferr, "parse_directory(): more than %d files!\n",
-					RT11_MAX_FILES_PER_IMAGE);
-					return;
-				}
+				if (_this->file_count >= RT11_MAX_FILES_PER_IMAGE)
+					return error_set(ERROR_FILESYSTEM_FORMAT,
+							"parse_directory(): more than %d files!\n",
+							RT11_MAX_FILES_PER_IMAGE);
 				_this->file[_this->file_count++] = f; //save
 			}
 
@@ -632,13 +645,15 @@ static void parse_directory(rt11_filesystem_t *_this) {
 			de_nr++;
 			de += de_len;
 			if (de - ds > 2 * RT11_BLOCKSIZE) // 1 segment = 2 blocks
-				fprintf(ferr, "parse_directory(): list of entries exceeds %d bytes\n",
+				return error_set(ERROR_FILESYSTEM_FORMAT,
+						"parse_directory(): list of entries exceeds %d bytes\n",
 						2 * RT11_BLOCKSIZE);
 		}
 
 		// next segment
 		ds_nr = ds_next_nr;
 	} while (ds_nr > 0);
+	return ERROR_OK;
 }
 
 // parse prefix and data blocks
@@ -686,13 +701,20 @@ int rt11_filesystem_parse(rt11_filesystem_t *_this) {
 	// read more boot code from blocks 2..5, length 4 block.
 	stream_parse(_this, _this->monitor, 2, 0, 4 * RT11_BLOCKSIZE);
 
-	parse_homeblock(_this);
-	parse_directory(_this);
-	parse_file_data(_this);
-	// rt11_filesystem_print_diag(_this, stderr);
+	if (parse_homeblock(_this))
+		return error_code;
+	if (parse_directory(_this))
+		return error_code;
 
-	// test: set a block bit, must result in "changed file
-	// boolarray_bit_set(_this->image_changed_blocks, 0100) ;
+	// image must be patched, but filesystem files always unpatched
+	// and directory struct needed to find DD.SYS files
+	rt11_filesystem_unpatch(_this); 	// restore original DD[X].SYS
+
+	parse_file_data(_this);
+
+	rt11_filesystem_patch(_this); 	// re-patch iamge
+
+	// rt11_filesystem_print_diag(_this, stderr);
 
 	// mark file->data , ->prefix as changed, for changed image blocks
 	rt11_filesystem_mark_filestreams_as_changed(_this);
@@ -923,11 +945,9 @@ static void render_file_data(rt11_filesystem_t *_this) {
 			// low byte of 1st word on volume is blockcount,
 			uint16_t prefix_block_count = NEEDED_BLOCKS(RT11_BLOCKSIZE,
 					f->prefix->data_size + 2);
-			if (prefix_block_count > 255) {
-				fprintf(stderr, "Render: Prefix of file \"%s.%s\" = %d blocks, maximum 255\n",
+			if (prefix_block_count > 255)
+				fatal("Render: Prefix of file \"%s.%s\" = %d blocks, maximum 255",
 						f->filnam, f->ext, prefix_block_count);
-				exit(1);
-			}
 
 			IMAGE_PUT_WORD(IMAGE_BLOCKNR2PTR(_this,f->prefix->blocknr), prefix_block_count);
 			// start block and byte offset 2 already set by layout()
@@ -963,6 +983,59 @@ int rt11_filesystem_render(rt11_filesystem_t *_this) {
 		return error_code;
 	render_file_data(_this);
 
+	// modify DD[X].SYS
+	rt11_filesystem_patch(_this);
+
+	return ERROR_OK;
+}
+
+/**************************************************************
+ * modify local filesystem image
+ * modifications necessary for PDP-11 running oversized RT-11,
+ * but strictly local to binary image.
+ * NEVER part of parsed filesystem, or any disk file.
+ **************************************************************/
+
+// write "blockcount" into the DD[X].SYS file in the image
+// file->data not accessed, may not be valid.
+static int patch_dd_sys(rt11_filesystem_t *_this, char *filnam, char*ext,
+		rt11_blocknr_t blockcount) {
+	rt11_file_t *f;
+	f = rt11_filesystem_file_by_name(_this, filnam, ext);
+
+	if (f) {
+		if (f->block_count < 4) // is 5
+			return error_set(ERROR_FILESYSTEM_FORMAT, "DD.SYS < 4 blocks");
+		// patch position in image: startblock of file + offset
+		// lsb at offset 0x2c, msb at offset 0x2d
+		rt11_image_set_word_at(_this, f->block_nr, 0x2c, blockcount);
+		/*
+		 // debug: make file visible
+		 {
+		 char pathbuff[4096];
+		 sprintf(pathbuff, "dbg_%s", rt11_filename_to_host(filnam, ext, NULL));
+		 // works only because file is plain stream in image
+		 file_write(pathbuff, f->data->data, f->data->data_size);
+		 }
+		 */
+	}
+	return ERROR_OK;
+}
+
+// write image blocksize into DD[X].SYS on image
+// called after image_load() / after filesystem_render()
+int rt11_filesystem_patch(rt11_filesystem_t *_this) {
+	patch_dd_sys(_this, "DD    ", "SYS", _this->blockcount);
+	patch_dd_sys(_this, "DDX   ", "SYS", _this->blockcount);
+	return ERROR_OK;
+}
+
+// restore original DD[X].SYS in image
+// called before image_save() / after filesystem_parse()
+// may be called before rt11_filesystem_patch()
+int rt11_filesystem_unpatch(rt11_filesystem_t *_this) {
+	patch_dd_sys(_this, "DD    ", "SYS", 512);
+	patch_dd_sys(_this, "DDX   ", "SYS", 512);
 	return ERROR_OK;
 }
 

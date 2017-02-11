@@ -117,6 +117,11 @@ file_t *filesystem_file_get(filesystem_t *_this, int fileidx) ;
 // write filesystem into image
 int filesystem_render(filesystem_t *_this);
 
+// path file systemobjects in the image: DD.SYS on RT-11
+int filesystem_patch(filesystem_t *_this);
+// undo patches
+int filesystem_unpatch(filesystem_t *_this);
+
 
 void filesystem_print_dir(filesystem_t *_this, FILE *stream) ;
 void filesystem_print_diag(filesystem_t *_this, FILE *stream) ;

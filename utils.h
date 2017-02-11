@@ -55,6 +55,8 @@ char *cur_time_text(void) ;
 
 int is_memset(void *ptr, uint8_t val, uint32_t size);
 int is_fileset(char *fpath, uint8_t val, uint32_t offset);
+int file_write(char *fpath, uint8_t *data, unsigned size) ;
+
 
 char *strtrim(char *txt);
 char *strrpad(char *txt, int len, char c);
