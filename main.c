@@ -35,6 +35,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  23-Mar-2017 JH  V 1.2.0 	--boot option
  *  11-Feb-2017 JH  V 1.1.0 	oversized images for rt11 and xxdp
  *  8-Feb-2017 	JH  V 1.0.1 	protect readonly image.
  *  6-Feb-2017 	JH  V 1.0.0		releases for Ubuntu/BBB/RPI,Cygwin tested & published
@@ -45,7 +46,7 @@
 
 #define _MAIN_C_
 
-#define VERSION	"v1.1.0"
+#define VERSION	"v1.2.0"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -67,19 +68,24 @@
 
 #include "filesystem.h"
 
+#include "monitor.h"
+#include "bootloader.h"
+
 #include "main.h"   // own
 
 static char copyright[] = "(C) 2017 Joerg Hoppe <j_hoppe@t-online.de>,\n"
-		"(C) 2005-2017 Don North <ak6dn" "@" "mindspring.com>,\n"
+		"(C) 2005-2017 Don North <ak6dn@mindspring.com>,\n"
 		"(C) 1984 Dan Ts'o <Rockefeller University>";
 
 static char version[] = "tu58fs - DEC TU58 tape emulator with File Sharing "VERSION "\n"
 "(compile "__DATE__ " " __TIME__ ")";
 
 // global options
-char opt_port[256] = "";
-int opt_speed = 0; // line speed
-int opt_stopbits = 0; // stop bits, 1 or 2
+char opt_serial_port[256] = "";
+int opt_serial_speed = 0; // line baud rate
+int opt_serial_bitcount = 8; //
+char opt_serial_parity = 'n'; // n, e, o
+int opt_serial_stopbits = 1; // stop bits, 1 or 2
 int opt_verbose = 0; // set nonzero to output more info
 int opt_timing = 0; // set nonzero to add timing delays
 int opt_mrspen = 0; // set nonzero to enable MRSP mode
@@ -90,19 +96,23 @@ int opt_background = 0; // set to run in background mode (no console I/O except 
 int opt_synctimeout_sec = 0; // save changed image to disk after so many seconds of write-inactivity
 int opt_offlinetimeout_sec = 5; // disabled: TU58 waits with "offline" until so many seconds of RS232-inactivity
 
+monitor_type_t opt_boot_monitor = monitor_none;
+int opt_boot_address = 07000; // end of first 4k page
+int opt_boot_keep = 0;
+
 int arg_menu_linewidth = 80;
 
 // command line args
 static getopt_t getopt_parser;
-static int image_count;
+static int drive_count;
 
 /*
  * help()
  */
 static char * examples[] =
 		{
-				"sudo ./" PROGNAME "-p /dev/ttyS1 -b 38400 -d 0 r 11XXDP.DSK\n", //
-				"    Define device #0:\n", //
+				"sudo ./" PROGNAME "-p /dev/ttyS2 -b 38400 -d 0 r 11XXDP.DSK\n", //
+				"    Define device #0: tape image file is 11XXDP.DSK .\n", //
 				"    Access to serial line device requires \"sudo\". Image is readonly.\n", //
 				"    If it not exist, an error is signaled.\n",
 				"\n", //
@@ -144,26 +154,45 @@ static char * examples[] =
 				"    Extract content of image into shared directory, then run TU58 emulator on that directory.\n",
 				"    Dir is bootable, if the image is bootable.\n", //
 				"\n", //
+				PROGNAME " -p /dev/ttyS1 -b 9600 -f 7e2 --boot odt 1\n", //
+				"    Deposit TU58 bootloader over serial console port into PDP-11 and try to start it.\n", //
+				"    The console is configured for 7 bit, even parity and 2 stop bits.\n", //
+				"    A LSI-11 with ODT monitor is assumed, boot loader is dumped into memory at\n", //
+				"        address octal 7000 (at end of first 4K page).\n", //
+				"    The actual TU58 emulator must have been started on a different serial port before.\n", //
+				"    The boot loader will try to boot from TU58 tape.\n", //
+				"    After that the terminal window remains active, so you have a primitive\n", //
+				"    teletype to operate the booted PDP_11\n"
+						"\n", //
 				NULL };
 
 void help() {
 	char **s;
+	fprintf(ferr, "\n");
+	fprintf(ferr, "NAME\n");
+	fprintf(ferr, "\n");
 	fprintf(ferr, "%s\n", version);
 	fprintf(ferr, "%s\n", copyright);
 
 	fprintf(ferr, "\n");
-	fprintf(ferr, "See also www.retrocmp.com/tools/tu58fs \n");
+	fprintf(ferr, "SYNOPSIS\n");
 	fprintf(ferr, "\n");
-	fprintf(ferr, "Command line options are processed strictly left-to-right. Summary:\n\n");
-	// getop must be intialized to print the syntax
+	fprintf(ferr, "Command line options are processed strictly left-to-right. \n\n");
+	// getopt must be initialized to print the syntax
 	getopt_help(&getopt_parser, stdout, arg_menu_linewidth, 10, PROGNAME);
 	fprintf(ferr, "\n");
-	fprintf(ferr, "\n");
-	fprintf(ferr, "Some examples:\n");
+	fprintf(ferr, "EXAMPLES\n");
 	fprintf(ferr, "\n");
 	for (s = examples; *s; s++)
 		fputs(*s, ferr);
 
+	fprintf(ferr, "\n");
+	fprintf(ferr, "SEE ALSO\n");
+	fprintf(ferr, "\n");
+	fprintf(ferr, "Online docs: www.retrocmp.com/tools/tu58fs \n");
+	fprintf(ferr, "Repository: https://github.com/j-hoppe/tu58fs\n");
+	fprintf(ferr, "Contact: j_hoppe@t-online.de\n");
+	fprintf(ferr, "\n");
 	exit(1);
 }
 
@@ -242,10 +271,15 @@ static void parse_commandline(int argc, char **argv) {
 					"timing 2: add timing delays to mimic a real TU58.",
 			NULL, NULL, NULL, NULL);
 	getopt_def(&getopt_parser, "b", "baudrate", "baudrate", NULL, "38400",
-			"Set serial line speed to 1200..3000000 baud.",
+			"Set serial line speed to 300..3000000 baud.",
 			NULL, NULL, NULL, NULL);
-	getopt_def(&getopt_parser, "sb", "stopbits", "count", NULL, "1", "Set 1 or 2 stop bits.",
-	NULL, NULL, NULL, NULL);
+	getopt_def(&getopt_parser, "f", "format", "bits_parity_stop", NULL, "8N1",
+			"Set format parameters for serial line as a 3 char string <bitcount><parity><stopbits>\n"
+					"<bitcount> maybe 7 or 8, <parity> is n (no), e (even) or o (odd), <stopbits> is 1 or 2.\n"
+					"Set to special console params for --boot operation. leave default for device emulation.",
+			"7e2", "Set for 7 bit even parity with 2 stop bits (--boot)", NULL, NULL);
+//	getopt_def(&getopt_parser, "sb", "stopbits", "count", NULL, "1", "Set 1 or 2 stop bits.",
+//	NULL, NULL, NULL, NULL);
 	getopt_def(&getopt_parser, "p", "port", "serial_device", NULL, NULL,
 			"Select serial port: \"COM<serial_device>:\" or <serial_device> is a node like \"/dev/ttyS1\"",
 			NULL, NULL, NULL, NULL);
@@ -311,6 +345,24 @@ static void parse_commandline(int argc, char **argv) {
 	NULL, NULL, buff,
 	NULL, NULL, NULL, NULL);
 
+	getopt_def(&getopt_parser, "boot", "boot", "monitor", "keep", NULL,
+			"Deposits a TU58 bootloader over console monitor into PDP-11, then starts it.\n"
+					"The TU58 emulator must have been started on a different serial port before.\n"
+					"<port> and <baudrate> of the console are set by \"-p\" and \"-b\" options\n"
+					"  left of \"--boot\".\n"
+					"<monitor> specifies the implemented console: \"odt\", \"m9312\", or \"m9301\".\n"
+					"  \"code\" displays the bootloader code as value/address pairs on stdout.\n"
+					"With <keep>=1 the transfer dialog terminal window remains active, so you can\n"
+					"  immediately operate the booted TU58 OS. With <keep>=0 connection is terminated and\n"
+					"  you have to start a more comfortable terminal emulator.\n"
+					"- The serial CONSOLE port is always DIFFERENT from the TU58 port!\n"
+					"- The PDP-11 must be HALTed and show its monitor prompt,\n"
+					"  with the HALT/RUN switch in RUN position.\n"
+					"- the bootloader doesn't catch any TRAPs, so turn off the BEVENT/LTC signal.\n"
+					"  The code is loaded at end of first 4k page at address 7000.\n",
+
+			NULL, NULL, NULL, NULL);
+
 	/*
 	 // test options
 	 getopt_def(&getopt_parser, "testfs", "testfs", "filename", NULL, NULL,
@@ -320,8 +372,9 @@ static void parse_commandline(int argc, char **argv) {
 	if (argc < 2)
 		help(); // at least 1 required
 
-	image_count = 0;
-	opt_port[0] = 0;
+	drive_count = 0;
+	opt_serial_port[0] = 0;
+	opt_boot_monitor = monitor_none;
 
 	res = getopt_first(&getopt_parser, argc, argv);
 	while (res > 0) {
@@ -355,15 +408,19 @@ static void parse_commandline(int argc, char **argv) {
 			if (opt_timing > 2)
 				commandline_option_error("<timing> max 2");
 		} else if (getopt_isoption(&getopt_parser, "baudrate")) {
-			if (getopt_arg_i(&getopt_parser, "baudrate", &opt_speed) < 0)
+			if (getopt_arg_i(&getopt_parser, "baudrate", &opt_serial_speed) < 0)
 				commandline_option_error(NULL);
-		} else if (getopt_isoption(&getopt_parser, "stopbits")) {
-			if (getopt_arg_i(&getopt_parser, "count", &opt_stopbits) < 0)
+		} else if (getopt_isoption(&getopt_parser, "format")) {
+			char formatstr[80];
+			if (getopt_arg_s(&getopt_parser, "bits_parity_stop", formatstr, sizeof(formatstr))
+					< 0)
 				commandline_option_error(NULL);
-			if (opt_stopbits > 2)
-				commandline_option_error("stopbit <count> max 2");
+			if (serial_decode_format(formatstr, &opt_serial_bitcount, &opt_serial_parity,
+					&opt_serial_stopbits))
+				commandline_option_error("Illegal format");
 		} else if (getopt_isoption(&getopt_parser, "port")) {
-			if (getopt_arg_s(&getopt_parser, "serial_device", opt_port, sizeof(opt_port)) < 0)
+			if (getopt_arg_s(&getopt_parser, "serial_device", opt_serial_port,
+					sizeof(opt_serial_port)) < 0)
 				commandline_option_error(NULL);
 		} else if (getopt_isoption(&getopt_parser, "xxdp")) {
 			cur_filesystem_type = fsXXDP;
@@ -434,7 +491,7 @@ static void parse_commandline(int argc, char **argv) {
 					cur_filesystem_type) < 0)
 				commandline_option_error(NULL);
 			image_info(tu58image_get(unit));
-			image_count++;
+			drive_count++;
 		} else if (getopt_isoption(&getopt_parser, "unpack")) {
 			char filename[4096];
 			char dirname[4096];
@@ -525,6 +582,28 @@ static void parse_commandline(int argc, char **argv) {
 			filesystem_destroy(pdp_fs);
 			hostdir_destroy(hostdir);
 			image_destroy(img);
+
+		} else if (getopt_isoption(&getopt_parser, "boot")) {
+			char buff[256];
+			if (getopt_arg_s(&getopt_parser, "monitor", buff, sizeof(buff)) < 0)
+				commandline_option_error(NULL);
+			if (!strcasecmp("CODE", buff)) {
+				opt_boot_monitor = monitor_showcode;
+				opt_boot_keep = 0;
+			} else {
+				if (!strcasecmp("ODT", buff))
+					opt_boot_monitor = monitor_odt;
+				else if (!strcasecmp("M9312", buff))
+					opt_boot_monitor = monitor_m9312;
+				else if (!strcasecmp("M9301", buff))
+					opt_boot_monitor = monitor_m9301;
+				else
+					commandline_option_error("Illegal monitor \"%s\"", buff);
+
+				if (getopt_arg_i(&getopt_parser, "keep", &opt_boot_keep) < 0)
+					commandline_option_error(NULL);
+				// evaluation later in main()
+			}
 		}
 
 		res = getopt_next(&getopt_parser);
@@ -542,7 +621,21 @@ static void check_capabilities() {
 	filesystem_type_t fstype = fsNONE;
 	int fssize;
 
-	// XXDP: boot device #0 oversied?
+	if (drive_count > 0 && opt_boot_monitor != monitor_none)
+		fatal("--boot function incompatible with device emulation!");
+
+	if (drive_count > 0 && strlen(opt_serial_port) == 0) {
+		fatal("No serial port specified, drive emulator not started.");
+	}
+
+	if (opt_boot_monitor != monitor_none && opt_boot_monitor != monitor_showcode && strlen(opt_serial_port) == 0) {
+		fatal("No serial port specified, boot loader transfer not started.");
+	}
+
+	if (drive_count > 0 && opt_serial_bitcount != 8)
+		fatal("TU58 drive emulation requires 8 bit serial line format!");
+
+	// XXDP: boot device #0 oversized?
 	img = tu58image_get(0);
 	if (img && img->dec_filesystem == fsXXDP
 			&& img->data_size != img->device_info->block_count * img->blocksize)
@@ -658,7 +751,7 @@ static void device_dialog(image_t *img) {
 //
 // start tu58 drive emulation
 //
-void run(void) {
+void run_emulator(void) {
 	// a sanity check for blocksize definition
 	if (TU58_BLOCKSIZE % TU_DATA_LEN != 0)
 		fatal("illegal BLOCKSIZE (%d) / TU_DATA_LEN (%d) ratio", TU58_BLOCKSIZE,
@@ -765,37 +858,64 @@ int main(int argc, char *argv[]) {
 		info(copyright);
 	}
 
-	// must have opened at least one unit
-	if (strlen(opt_port) == 0) {
-		info("No port specified, emulator not started.");
-		exit(0);
-	}
-
-	// must have opened at least one unit
-	if (image_count == 0) {
-		info("No units were specified, emulator not started.");
-		exit(0);
-	}
-
 	// some warnings
 	check_capabilities();
 
 	// give some info
-	info("serial port %s at %d baud %d stop", opt_port, opt_speed, opt_stopbits);
-	if (opt_mrspen)
-		info("MRSP mode enabled (NOT fully tested - use with caution)");
+	info("Using serial port %s at %d baud with %d%c%d format.", opt_serial_port,
+			opt_serial_speed, opt_serial_bitcount, opt_serial_parity, opt_serial_stopbits);
 
-	// setup serial and console ports
-	devinit(opt_port, opt_speed, opt_stopbits);
-	coninit();
+	if (drive_count == 0) {
+		info("No simulated drives were specified, emulator not started.");
+	} else {
+		// emulation: must have opened at least one unit
 
-	// start thread with tu58 emulator
-	run();
+		if (opt_mrspen)
+			info("MRSP mode enabled (NOT fully tested - use with caution)");
 
-	// restore serial and console ports
-	conrestore();
-	devrestore();
+		// setup serial and console ports
+		serial_devinit(&tu58_serial, opt_serial_port, opt_serial_speed, opt_serial_bitcount,
+				opt_serial_parity, opt_serial_stopbits);
+		coninit(0); // normal without echo
 
-	// write back unsaved files and close
-	tu58images_closeall();
+		// start thread with tu58 emulator
+		run_emulator();
+
+		// restore serial and console ports
+		conrestore();
+		serial_devrestore(&tu58_serial);
+
+		// write back unsaved files and close
+		tu58images_closeall();
+	}
+
+	// boot loader?
+	if (opt_boot_monitor == monitor_showcode) {
+		bootloader_show_code(stdout, opt_boot_address);
+	} else if (opt_boot_monitor != monitor_none) {
+		int res;
+		serial_device_t monitor_serial; // PDP-11 console
+		serial_devinit(&monitor_serial, opt_serial_port, opt_serial_speed, opt_serial_bitcount,
+				opt_serial_parity, opt_serial_stopbits);
+		coninit(1); // host console, raw: no processing of PDP-11 I/O
+
+		// download, and echo to console
+		res = bootloader_download(&monitor_serial, opt_boot_monitor, opt_boot_address);
+		if (!res)
+			res = bootloader_go(&monitor_serial, opt_boot_monitor, opt_boot_address);
+		// no error
+
+		if (opt_boot_keep) {
+			if (res) {
+				run_teletype(&monitor_serial, opt_boot_monitor,
+						"PDP-11 does not respond. Use this teletype session to verify console prompt.");
+			} else
+				// interactive tty terminal on PDP-11 monitor port
+				run_teletype(&monitor_serial, opt_boot_monitor, NULL);
+		}
+
+		// restore serial and console ports
+		conrestore();
+		serial_devrestore(&monitor_serial);
+	}
 }

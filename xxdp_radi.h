@@ -61,5 +61,4 @@ typedef struct {
 extern xxdp_radi_t xxdp_radi[];
 #endif
 
-
 #endif /* _XXDP_RADI_H_ */

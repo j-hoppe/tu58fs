@@ -43,6 +43,7 @@
 #define _TU58DRIVE_H_
 
 #include "image.h"
+#include "serial.h"
 
 
 #define DEV_NYI		-1	// not yet implemented
@@ -61,6 +62,8 @@
 // data cartridges
 extern image_t *tu58_image[TU58_DEVICECOUNT];
 
+// serial interface
+extern 	serial_device_t	tu58_serial ;
 
 // communication beetween thread and main()
 extern uint8_t tu58_doinit ;	// set nonzero to indicate should send INITs continuously

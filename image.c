@@ -74,6 +74,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <string.h>
+#include <limits.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <assert.h>
@@ -162,7 +163,7 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 	if (fd < 0)
 		return error_set(ERROR_HOSTFILE, "Unit %d: image_open cannot open or create \"%s\"",
 				_this->unit, _this->host_fpath);
-	// get timestamps, to monitor changes
+		// get timestamps, to monitor changes
 	stat(_this->host_fpath, &_this->host_fattr);
 
 	// clear image

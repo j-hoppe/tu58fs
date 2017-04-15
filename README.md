@@ -8,6 +8,8 @@ The "tape content" appears as plain files in a shared directory, and can be acce
 
 XXDP and RT-11 filesystems are supported.
 
+Can also download and start TU58 DD boot loaders over serial console.
+
 Written in C, should compile on every Linux platform.
 
 Online docs [here](https://www.retrocmp.com/tools/tu58fs)

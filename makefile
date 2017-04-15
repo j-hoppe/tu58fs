@@ -48,6 +48,8 @@ OBJECTS = $(OBJDIR)/main.o \
 		$(OBJDIR)/xxdp_radi.o \
 		$(OBJDIR)/rt11.o	\
 		$(OBJDIR)/rt11_radi.o \
+		$(OBJDIR)/monitor.o \
+		$(OBJDIR)/bootloader.o \
 
 
 $(OBJDIR)/$(PROG) : $(OBJECTS)
@@ -113,5 +115,11 @@ $(OBJDIR)/rt11.o : rt11.c rt11.h
 
 $(OBJDIR)/rt11_radi.o : rt11_radi.c rt11_radi.h
 	$(CC) $(CCFLAGS) rt11_radi.c -o $@
+
+$(OBJDIR)/monitor.o : monitor.c monitor.h
+	$(CC) $(CCFLAGS) monitor.c -o $@
+
+$(OBJDIR)/bootloader.o : bootloader.c bootloader.h
+	$(CC) $(CCFLAGS) bootloader.c -o $@
 
 # the end

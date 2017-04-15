@@ -54,24 +54,33 @@
 #include "utils.h"	// own
 
 //
-// delay routine
-//
-void delay_ms(int32_t ms) {
+// delay routine.
+// !!! Do use carefully !
+// !!! Neither usleep() not nano_sleep() work well under CygWin.
+// !!! Granularity seems to be about 10 ms !!!
+void delay_us(int32_t us) {
 	struct timespec rqtp;
 	int32_t sts;
 
 	// check if any delay required
-	if (ms <= 0)
+	if (us <= 0)
 		return;
 
+	// nanosleep() preferred over usleep(),
 	// compute integer seconds and fraction (in nanoseconds)
-	rqtp.tv_sec = ms / 1000L;
-	rqtp.tv_nsec = (ms % 1000L) * 1000000L;
+	rqtp.tv_sec = us / 1000000L;
+	rqtp.tv_nsec = (us % 1000000L) * 1000L;
 
 	// if nanosleep() fails then just plain sleep()
 	if ((sts = nanosleep(&rqtp, NULL)) == -1)
 		sleep(rqtp.tv_sec);
 }
+
+
+void delay_ms(int32_t ms) {
+		delay_us(1000 * ms) ;
+}
+
 
 // system time in milli seconds
 uint64_t now_ms() {
@@ -79,6 +88,27 @@ uint64_t now_ms() {
 	gettimeofday(&tv, NULL);
 	return tv.tv_sec * (uint64_t) 1000 + tv.tv_usec / 1000;
 }
+
+// system time in micro seconds
+uint64_t now_us() {
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return tv.tv_sec * (uint64_t) 1000000 + tv.tv_usec ;
+}
+
+
+// simple timeout system
+static uint64_t	timeout_time_us ; //target time
+
+void timeout_set(int delta_us) {
+	timeout_time_us = now_us() + delta_us ;
+}
+
+// 1 = timeout
+int timeout_reached() {
+	return (now_us() > timeout_time_us) ;
+}
+
 
 char *cur_time_text() {
 	static char result[40] ;
@@ -179,6 +209,45 @@ char *strrpad(char *txt, int len, char c) {
 	buff[len] = 0;
 	return buff;
 }
+
+// string with all invisible chars in \x notation
+char *strprintable(char *s, int size) {
+	static char buffer[1024] ;
+	char buf[10] ;
+	int i ;
+	char c ;
+	char *wp = buffer ;
+	*wp = 0 ;
+	for (i= 0 ;  i < size ; i++) {
+		c = s[i] ;
+		// must be room for one more char expr
+		assert(wp-buffer < sizeof(buffer)-5) ;
+		if (c == 0) {
+			strcat(wp, "<NUL>") ;
+			wp += 5 ;
+		} else if (c == 0x07) {
+			strcat(wp, "<BEL>") ;
+			wp += 5 ;
+		} else if (c == 0x0a) {
+			strcat(wp, "<LF>") ;
+			wp += 4 ;
+		} else if (c == 0x0d) {
+			strcat(wp, "<CR>") ;
+			wp += 4 ;
+		} else if (c == 0x20) {
+				strcat(wp, "<SPC>") ;
+				wp += 5 ;
+		} else if (c <= 0x1f || c >= 0x7f) {
+			sprintf(buf, "\\x%.2x", (int)c) ;
+			strcat(wp, buf) ;
+			wp += strlen(buf) ;
+		} else
+			*wp++ = c ;
+		*wp=0 ;
+	}
+	return buffer ;
+}
+
 
 // encode char into a 0..39 value
 // " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.%0123456789"

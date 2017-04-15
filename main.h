@@ -42,7 +42,7 @@
 
 #ifndef _MAIN_C_
 
-extern char opt_port[256] ; // default port number (COM1, /dev/ttyS0)
+extern char opt_serial_port[256] ; // default port number (COM1, /dev/ttyS0)
 extern int opt_speed  ; // default line speed
 extern int opt_stop ; // default stop bits, 1 or 2
 extern int opt_verbose ; // set nonzero to output more info

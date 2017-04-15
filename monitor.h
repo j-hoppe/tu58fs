@@ -1,4 +1,4 @@
-/* error.h: global error & info handling
+/* monitor.h: interface to different PDP-11 console monitors
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -33,48 +33,45 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  29-Jan-2017  JH  created
+ *  24-Mar-2017  JH  created
+ *
  */
-
-#ifndef _ERROR_H_
-#define _ERROR_H_
+#ifndef _MONITOR_H_
+#define _MONITOR_H_
 
 #include <stdio.h>
+#include "serial.h"
 
-// possible errors
-#define ERROR_OK	0
-#define ERROR_FILESYSTEM_FORMAT	-1 // error in files ystem structure
-#define ERROR_FILESYSTEM_OVERFLOW -2 // too many files on PDP
-#define ERROR_FILESYSTEM_DUPLICATE -3 // duplicate file name
-#define ERROR_FILESYSTEM_INVALID -4 // invalid PDP file system selected
-#define	ERROR_HOSTDIR -5 // error with shared directory
-#define ERROR_HOSTFILE -6 // file error on host file system
-#define ERROR_ILLPARAMVAL -7 // illegal function parameter
-#define ERROR_IMAGE_MODE	-8 // tape image in wrong operation mode
-#define ERROR_IMAGE_EOF -9 // file pointer moved outside tape image
-#define ERROR_MONITOR -10 // response from PDP-11 monitor not understood
-#define ERROR_TTY -12 //  I/O error in teletype emulation
+typedef enum {
+	monitor_none = 0,
+	monitor_showcode = 1,
+	monitor_odt = 2,
+	monitor_m9312 = 3,
+	monitor_m9301 = 4
+} monitor_type_t;
 
-// expected error messages
-#define STATUS_MONITOR_NOPROMPT 1
+// monitor state machine
+typedef struct {
+	monitor_type_t monitor_type;
+	char *prompt; // prompt string "@"
+	serial_device_t *serial; // serial PDP-11 console port
+	int responsetime_us; // time to wait for PDP_11 response after command
+	int chartime_us; // time for one serial char in micro secs
+	FILE *fecho; // if set: stream for user echo
+	unsigned last_address; // last address set with console cmd (M9312 "L")
+} monitor_t;
 
+int monitor_init(monitor_t *_this, serial_device_t *serial,
+		monitor_type_t monitor_type, FILE *hostconsole);
+int monitor_assert_prompt(monitor_t *_this);
+char *monitor_gets(monitor_t *_this, int timeout_us);
+int monitor_puts(monitor_t *_this, char *s);
+int monitor_deposit(monitor_t *_this, unsigned address, unsigned value);
+int monitor_go(monitor_t *_this, unsigned address, int no_enter);
 
+void monitor_close(monitor_t *_this);
 
-//#define	ERROR_MAX_TRACE_LEVEL	10
-
-#ifndef _ERROR_C_
-extern FILE *ferr; // variable error stream
-extern int error_code ;
-//extern char  error_message[ERROR_MAX_TRACE_LEVEL+1][1024] ;
-#endif
-
-void error_clear(void) ;
-int error_set(int code, char *fmt, ...) ;
-
-void fatal(char *, ...);
-void error(char *, ...);
-void warning(char *, ...);
-void info(char *, ...);
-
+void monitor_trace_clear(void);
+void monitor_trace_dump(FILE *f); //debug
 
 #endif

@@ -1,4 +1,4 @@
-/* error.h: global error & info handling
+/* bootloader.h: deposit TU58 bootloader into monitor and start
  *
  *  Copyright (c) 2017, Joerg Hoppe
  *  j_hoppe@t-online.de, www.retrocmp.com
@@ -33,48 +33,17 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  29-Jan-2017  JH  created
+ *  23-Mar-2017  JH  created
  */
 
-#ifndef _ERROR_H_
-#define _ERROR_H_
+#ifndef _BOOTLOADER_H_
+#define _BOOTLOADER_H_
 
-#include <stdio.h>
+void bootloader_show_code(FILE *fout, int opt_boot_address) ;
+int bootloader_download(serial_device_t *serialdevice, monitor_type_t opt_boot_monitor,
+		int opt_boot_address);
+int bootloader_go(serial_device_t *serialdevice, monitor_type_t monitor_type, int boot_address);
 
-// possible errors
-#define ERROR_OK	0
-#define ERROR_FILESYSTEM_FORMAT	-1 // error in files ystem structure
-#define ERROR_FILESYSTEM_OVERFLOW -2 // too many files on PDP
-#define ERROR_FILESYSTEM_DUPLICATE -3 // duplicate file name
-#define ERROR_FILESYSTEM_INVALID -4 // invalid PDP file system selected
-#define	ERROR_HOSTDIR -5 // error with shared directory
-#define ERROR_HOSTFILE -6 // file error on host file system
-#define ERROR_ILLPARAMVAL -7 // illegal function parameter
-#define ERROR_IMAGE_MODE	-8 // tape image in wrong operation mode
-#define ERROR_IMAGE_EOF -9 // file pointer moved outside tape image
-#define ERROR_MONITOR -10 // response from PDP-11 monitor not understood
-#define ERROR_TTY -12 //  I/O error in teletype emulation
+int run_teletype(serial_device_t *serialdevice, monitor_type_t monitor_type, char *userinfo);
 
-// expected error messages
-#define STATUS_MONITOR_NOPROMPT 1
-
-
-
-//#define	ERROR_MAX_TRACE_LEVEL	10
-
-#ifndef _ERROR_C_
-extern FILE *ferr; // variable error stream
-extern int error_code ;
-//extern char  error_message[ERROR_MAX_TRACE_LEVEL+1][1024] ;
-#endif
-
-void error_clear(void) ;
-int error_set(int code, char *fmt, ...) ;
-
-void fatal(char *, ...);
-void error(char *, ...);
-void warning(char *, ...);
-void info(char *, ...);
-
-
-#endif
+#endif /* _BOOTLOADER_H_ */

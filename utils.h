@@ -49,7 +49,15 @@
 
 
 void delay_ms(int32_t ms);
-uint64_t now_ms(); // current timestamp in milli seconds
+void delay_us(int32_t us);
+uint64_t now_ms(); // current time stamp in milli seconds
+uint64_t now_us() ;// current time stamp in micro seconds
+
+void timeout_set(int delta_us) ;
+int timeout_reached(void) ;
+
+
+
 char *cur_time_text(void) ;
 
 
@@ -61,6 +69,7 @@ int file_write(char *fpath, uint8_t *data, unsigned size) ;
 char *strtrim(char *txt);
 char *strrpad(char *txt, int len, char c);
 int inputline(char **tokenlist, int tokenlist_size);
+char *strprintable(char *s, int size) ;
 
 char *rad50_decode(uint16_t w);
 uint16_t rad50_encode(char *s);

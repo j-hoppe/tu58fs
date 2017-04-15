@@ -62,6 +62,9 @@
 // hold one image per device
 image_t *tu58_image[TU58_DEVICECOUNT];
 
+// the serial port
+serial_device_t tu58_serial;
+
 #ifdef MACOSX
 // clock_gettime() is not available under OSX
 #define CLOCK_REALTIME 1
@@ -103,12 +106,11 @@ uint8_t tu58_runonce = 0;	// set nonzero to indicate emulator has been run
 int volatile tu58_offline_request;  // 1: main thread wants offline mode
 int volatile tu58_offline; // TU58 is offline, all drives without cartridge
 
-
 void tu58images_init() {
 	int32_t unit;
-    for (unit=0 ; unit < TU58_DEVICECOUNT; unit++)  { // minimal init
-        tu58_image[unit] = NULL ;
-    }
+	for (unit = 0; unit < TU58_DEVICECOUNT; unit++) { // minimal init
+		tu58_image[unit] = NULL;
+	}
 }
 
 // allocate an image for a TU58 device
@@ -117,12 +119,11 @@ image_t *tu58image_create(int32_t unit, int forced_data_size) {
 		fatal("bad unit %d", unit); //terminates
 	}
 	if (tu58_image[unit] != NULL)
-		fatal("tu58image_create(): duplicate allocation") ;//terminates
+		fatal("tu58image_create(): duplicate allocation"); //terminates
 
-	tu58_image[unit] = image_create(devTU58, unit, forced_data_size) ;
-	return tu58_image[unit] ;
+	tu58_image[unit] = image_create(devTU58, unit, forced_data_size);
+	return tu58_image[unit];
 }
-
 
 // select image over unit number
 image_t *tu58image_get(int32_t unit) {
@@ -132,7 +133,6 @@ image_t *tu58image_get(int32_t unit) {
 	}
 	return tu58_image[unit];
 }
-
 
 // save all changes
 void tu58images_closeall(void) {
@@ -173,15 +173,15 @@ void tu58images_sync_all() {
 //
 static void reinit(void) {
 	// clear all buffers, wait a bit
-	devrxinit();
-	devtxinit();
+	serial_devrxinit(&tu58_serial);
+	serial_devtxinit(&tu58_serial);
 	delay_ms(5);
 
 	// init sequence, send immediately
-	devtxstart();
-	devtxput(TUF_INIT);
-	devtxput(TUF_INIT);
-	devtxflush();
+	serial_devtxstart(&tu58_serial);
+	serial_devtxput(&tu58_serial, TUF_INIT);
+	serial_devtxput(&tu58_serial, TUF_INIT);
+	serial_devtxflush(&tu58_serial);
 
 	return;
 }
@@ -196,7 +196,7 @@ static void bootio(void) {
 	uint8_t buffer[TU_BOOT_LEN];
 
 	// check unit number for validity
-	unit = devrxget();
+	unit = serial_devrxget(&tu58_serial);
 	img = tu58image_get(unit);
 	if (!img || !img->open) {
 		error("bootio bad unit %d", unit);
@@ -221,7 +221,7 @@ static void bootio(void) {
 	}
 
 	// write one block of data to serial line
-	if ((count = devtxwrite(buffer, TU_BOOT_LEN)) != TU_BOOT_LEN) {
+	if ((count = serial_devtxwrite(&tu58_serial, buffer, TU_BOOT_LEN)) != TU_BOOT_LEN) {
 		error("boot serial write error unit %d, expected %d, received %d", unit,
 		TU_BOOT_LEN, count);
 		return;
@@ -278,7 +278,7 @@ static void wait4cont(uint8_t code) {
 
 	// send any existing data out ... makes USB serial emulation be real slow if enabled!
 	if (0)
-		devtxflush();
+		serial_devtxflush(&tu58_serial);
 
 	// don't do any waiting if flag not set
 	if (!code)
@@ -286,7 +286,7 @@ static void wait4cont(uint8_t code) {
 
 	// wait for a CONT to arrive, but only so long
 	do {
-		c = devrxget();
+		c = serial_devrxget(&tu58_serial);
 		if (opt_debug)
 			info("wait4cont(): char=0x%02X", c);
 	} while (c != TUF_CONT && --maxchar >= 0);
@@ -303,18 +303,17 @@ static void putpacket(tu_packet *pkt) {
 	uint8_t *ptr = (uint8_t *) pkt; // start at flag byte
 	uint16_t chksum;
 
-
 	// send all packet bytes
 	while (--count >= 0) {
-		devtxput(*ptr++);
+		serial_devtxput(&tu58_serial, *ptr++);
 		wait4cont(mrsp);
 	}
 
 	// compute/send checksum bytes, append to packet
 	chksum = checksum(pkt);
-	devtxput(*ptr++ = chksum >> 0);
+	serial_devtxput(&tu58_serial, *ptr++ = chksum >> 0);
 	wait4cont(mrsp);
-	devtxput(*ptr++ = chksum >> 8);
+	serial_devtxput(&tu58_serial, *ptr++ = chksum >> 8);
 	wait4cont(mrsp);
 
 	// for debug...
@@ -322,7 +321,7 @@ static void putpacket(tu_packet *pkt) {
 		dumppacket(pkt, "putpacket");
 
 	// now actually send the packet (or whatever is left to send)
-	devtxflush();
+	serial_devtxflush(&tu58_serial);
 
 	return;
 }
@@ -337,7 +336,7 @@ static int32_t getpacket(tu_packet *pkt) {
 
 	// get remaining packet bytes, incl two checksum bytes
 	while (--count >= 0)
-		*ptr++ = devrxget();
+		*ptr++ = serial_devrxget(&tu58_serial);
 
 	// get checksum bytes
 	rcvchk = (ptr[-1] << 8) | (ptr[-2] << 0);
@@ -369,7 +368,7 @@ static void endpacket(uint8_t unit, uint8_t code, uint16_t count, uint16_t statu
 	ek.block = status; // summary status
 
 	putpacket((tu_packet *) &ek);
-	devtxflush(); // finish packet transmit
+	serial_devtxflush(&tu58_serial); // finish packet transmit
 
 	return;
 }
@@ -526,8 +525,8 @@ static void tuwrite(tu_cmdpkt *pk) {
 	for (count = pk->count; count > 0; count -= dk.length) {
 
 		// send continue flag; we are ready for more data
-		devtxput(TUF_CONT);
-		devtxflush();
+		serial_devtxput(&tu58_serial, TUF_CONT);
+		serial_devtxflush(&tu58_serial);
 		if (opt_debug)
 			info("sending <CONT>");
 
@@ -537,13 +536,13 @@ static void tuwrite(tu_cmdpkt *pk) {
 		// loop until we see data flag
 		do {
 			last = dk.flag;
-			dk.flag = devrxget();
+			dk.flag = serial_devrxget(&tu58_serial);
 			if (opt_debug)
 				info("flag=0x%02X last=0x%02X", dk.flag, last);
 			if (last == TUF_INIT && dk.flag == TUF_INIT) {
 				// two in a row is special
-				devtxput(TUF_CONT); // send 'continue'
-				devtxflush(); // send immediate
+				serial_devtxput(&tu58_serial, TUF_CONT); // send 'continue'
+				serial_devtxflush(&tu58_serial); // send immediate
 				if (opt_debug)
 					info("<INIT><INIT> seen, sending <CONT>, abort write");
 				return; // abort command
@@ -554,16 +553,16 @@ static void tuwrite(tu_cmdpkt *pk) {
 			} else if (dk.flag == TUF_XOFF) {
 				if (opt_debug)
 					info("<XOFF> seen, stopping output");
-				devtxstop();
+				serial_devtxstop(&tu58_serial);
 			} else if (dk.flag == TUF_CONT) {
 				if (opt_debug)
 					info("<CONT> seen, starting output");
-				devtxstart();
+				serial_devtxstart(&tu58_serial);
 			}
 		} while (dk.flag != TUF_DATA);
 
 		// byte following data flag is packet data length
-		dk.length = devrxget();
+		dk.length = serial_devrxget(&tu58_serial);
 
 		// get remainder of the data packet
 		if (getpacket((tu_packet *) &dk)) {
@@ -633,7 +632,7 @@ static void command(int8_t flag) {
 	time_end.tv_nsec = 0;
 
 	pk.flag = flag;
-	pk.length = devrxget();
+	pk.length = serial_devrxget(&tu58_serial);
 
 	// check control packet length ... if too long flush it
 	if (pk.length > sizeof(tu_cmdpkt)) {
@@ -764,8 +763,8 @@ static void command(int8_t flag) {
 
 	case TUO_INIT: // init packet
 		delay_ms(tudelay[opt_timing].init);
-		devtxinit();
-		devrxinit();
+		serial_devtxinit(&tu58_serial);
+		serial_devrxinit(&tu58_serial);
 		endpacket(pk.unit, TUE_SUCC, 0, 0);
 		break;
 
@@ -828,8 +827,8 @@ void* tu58_server(void* none) {
 		if (tu58_offline_request && !tu58_offline) {
 			// if requested, go offline after inactivity timeout
 
-			if (serial_rx_lasttime_ms + opt_offlinetimeout_sec * 1000 < now_ms()
-	&& serial_tx_lasttime_ms + opt_offlinetimeout_sec * 1000 < now_ms()	) {
+			if (tu58_serial.rx_lasttime_ms + opt_offlinetimeout_sec * 1000 < now_ms()
+					&& tu58_serial.tx_lasttime_ms + opt_offlinetimeout_sec * 1000 < now_ms()) {
 				tu58_offline = 1;
 				if (opt_verbose)
 					info("TU58 now offline");
@@ -842,16 +841,16 @@ void* tu58_server(void* none) {
 		// if offline, on read/write/seek a "no cartridge" is sent
 
 		// loop while no characters are available
-		if (devrxavail() == 0) {
+		if (serial_devrxavail(&tu58_serial) == 0) {
 			// delays and printout only if not VAX
 			if (!opt_vax) {
 				// send INITs if still required
 				if (tu58_doinit) {
 					if (opt_debug)
 						fprintf(ferr, ".");
-					devtxput(TUF_INIT);
-					devtxflush();
-					serial_tx_lasttime_ms = 0 ; // does not count as traffic
+					serial_devtxput(&tu58_serial, TUF_INIT);
+					serial_devtxflush(&tu58_serial);
+					tu58_serial.tx_lasttime_ms = 0; // does not count as traffic
 					delay_ms(75);
 				}
 				delay_ms(25);
@@ -862,14 +861,14 @@ void* tu58_server(void* none) {
 
 #ifdef ORG
 		// loop while no characters are available
-		while (devrxavail() == 0) {
+		while (serial_devrxavail() == 0) {
 			// delays and printout only if not VAX
 			if (!opt_vax) {
 				// send INITs if still required
 				if (tu58_doinit) {
 					if (opt_debug) fprintf(ferr, ".");
-					devtxput(TUF_INIT);
-					devtxflush();
+					serial_devtxput(TUF_INIT);
+					serial_devtxflush();
 					delay_ms(75);
 				}
 				delay_ms(25);
@@ -880,7 +879,7 @@ void* tu58_server(void* none) {
 
 		// process received characters
 		last = flag;
-		flag = devrxget();
+		flag = serial_devrxget(&tu58_serial);
 		if (opt_debug)
 			info("flag=0x%02X last=0x%02X", flag, last);
 
@@ -899,8 +898,8 @@ void* tu58_server(void* none) {
 				// two in a row is special
 				if (!opt_vax)
 					delay_ms(tudelay[opt_timing].init); // no delay for VAX
-				devtxput(TUF_CONT); // send 'continue'
-				devtxflush(); // send immediate
+				serial_devtxput(&tu58_serial, TUF_CONT); // send 'continue'
+				serial_devtxflush(&tu58_serial); // send immediate
 				flag = -1; // undefined
 				if (opt_debug)
 					info("<INIT><INIT> seen, sending <CONT>");
@@ -924,14 +923,14 @@ void* tu58_server(void* none) {
 			// continue restarts output
 			if (opt_debug)
 				info("<CONT> seen, starting output");
-			devtxstart();
+			serial_devtxstart(&tu58_serial);
 			break;
 
 		case TUF_XOFF:
 			// send disable flag stops output
 			if (opt_debug)
 				info("<XOFF> seen, stopping output");
-			devtxstop();
+			serial_devtxstop(&tu58_serial);
 			break;
 
 		case TUF_DATA:
@@ -958,14 +957,14 @@ void* tu58_server(void* none) {
 //
 void* tu58_monitor(void* none) {
 	int32_t sts;
-	uint64_t now ;
+	uint64_t now;
 	uint64_t next_sync_time;
 
 	next_sync_time = now_ms() + opt_synctimeout_sec * 1000;
 	for (;;) {
 
 		// check for any error
-		switch (sts = devrxerror()) {
+		switch (sts = serial_devrxerror(&tu58_serial)) {
 		case DEV_ERROR: // error
 		case DEV_BREAK: // break
 			// kill and restart the emulator
@@ -989,11 +988,11 @@ void* tu58_monitor(void* none) {
 			error("monitor(): unknown flag %d", sts);
 			break;
 		}
-		now = now_ms() ;
+		now = now_ms();
 		// image_*() routines have, mutex locking, so no change while saving possible
 		if (next_sync_time < now
-				&& serial_rx_lasttime_ms + opt_synctimeout_sec * 1000 < now
-				&& serial_tx_lasttime_ms + opt_synctimeout_sec * 1000 < now) {
+				&& tu58_serial.rx_lasttime_ms + opt_synctimeout_sec * 1000 < now
+				&& tu58_serial.tx_lasttime_ms + opt_synctimeout_sec * 1000 < now) {
 			// next sync time passed, and RS232 inactive
 			tu58images_sync_all();
 			next_sync_time = now + opt_synctimeout_sec * 1000;
