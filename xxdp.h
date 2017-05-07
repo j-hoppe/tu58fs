@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  12-Jan-2017  JH  created
  */
 #ifndef XXDP_H_
@@ -132,7 +133,7 @@ typedef struct {
 	device_info_t  *device_info ;
 	xxdp_radi_t radi ;    // Random Access Device Information
 
-	 int blockcount ; // usable blocks in filesystem.
+	 unsigned blockcount ; // usable blocks in filesystem.
 	 xxdp_blocknr_t	preallocated_blockcount ; // fix blocks at start
 	 int interleave;
  	 int mfd_variety; // Master File Directory in format 1 or format 2?
@@ -150,7 +151,7 @@ typedef struct {
 
 	// blocks used by User File Directory
 	xxdp_blocklist_t *ufd_blocklist;
-	int file_count;
+	int file_count; // signed, because there are negative file_idx
 	xxdp_file_t *file[XXDP_MAX_FILES_PER_IMAGE];
 } xxdp_filesystem_t;
 

@@ -181,65 +181,60 @@
 
 /*** binary image of TU58 boot loader ***/
 #define obj_code_word_count ((010124 - 010000)/2 + 1)
-static uint16_t obj_code[obj_code_word_count] = { 0000261, 0012700, 0000000,
-		0012701, 0176500, 0012706, 0002000, 0005004, 0005261, 0000004, 0005003,
-		0004767, 0000050, 0005061, 0000004, 0005761, 0000002, 0012703, 0004004,
-		0004767, 0000034, 0010003, 0004767, 0000030, 0005003, 0105711, 0100376,
-		0116123, 0000002, 0022703, 0001000, 0101371, 0005007, 0004717, 0004717,
-		0004717, 0105761, 0000004, 0100375, 0110361, 0000006, 0000303, 0000207 };
-
+static uint16_t obj_code[obj_code_word_count] = { 0000261, 0012700, 0000000, 0012701, 0176500,
+		0012706, 0002000, 0005004, 0005261, 0000004, 0005003, 0004767, 0000050, 0005061,
+		0000004, 0005761, 0000002, 0012703, 0004004, 0004767, 0000034, 0010003, 0004767,
+		0000030, 0005003, 0105711, 0100376, 0116123, 0000002, 0022703, 0001000, 0101371,
+		0005007, 0004717, 0004717, 0004717, 0105761, 0000004, 0100375, 0110361, 0000006,
+		0000303, 0000207 };
 
 void bootloader_show_code(FILE *fout, int opt_boot_address) {
 	unsigned i;
-		fprintf(stdout, "# TU58 boot loader octal address/value dump\n");
-		// dump out address/value pairs
-		for (i = 0; i < obj_code_word_count; i++) {
-			unsigned addr = opt_boot_address + 2 * i;
-			unsigned value = obj_code[i];
-			fprintf(stdout, "%06o %06o\n", addr, value);
-		}
-		fprintf(stdout, "\n");
+	fprintf(fout, "# TU58 boot loader octal address/value dump\n");
+	// dump out address/value pairs
+	for (i = 0; i < obj_code_word_count; i++) {
+		unsigned addr = opt_boot_address + 2 * i;
+		unsigned value = obj_code[i];
+		fprintf(fout, "%06o %06o\n", addr, value);
+	}
+	fprintf(fout, "\n");
 }
-
 
 /*
  * Download object code over monitor into PDP-11
  */
-int bootloader_download(serial_device_t *serialdevice,
-		monitor_type_t monitor_type, int opt_boot_address) {
+int bootloader_download(serial_device_t *serialdevice, monitor_type_t monitor_type,
+		int opt_boot_address) {
 	monitor_t monitor;
 	unsigned i;
 
-		if (monitor_init(&monitor, serialdevice, monitor_type, stdout))
-			return error_set(ERROR_MONITOR,
-					"monitor_init in bootloader_download");
-		if (monitor_assert_prompt(&monitor))
-			return error_set(ERROR_MONITOR,
-					"Boot loader download: PDP-11 console prompt not found.");
+	if (monitor_init(&monitor, serialdevice, monitor_type, stdout))
+		return error_set(ERROR_MONITOR, "monitor_init in bootloader_download");
+	if (monitor_assert_prompt(&monitor))
+		return error_set(ERROR_MONITOR,
+				"Boot loader download: PDP-11 console prompt not found.");
 
-		// dump out address/value pairs
-		for (i = 0; i < obj_code_word_count; i++) {
-			unsigned addr = opt_boot_address + 2 * i;
-			unsigned value = obj_code[i];
-			if (monitor_deposit(&monitor, addr, value))
-				return error_set(ERROR_MONITOR, "bootloader_download");
-		}
+	// dump out address/value pairs
+	for (i = 0; i < obj_code_word_count; i++) {
+		unsigned addr = opt_boot_address + 2 * i;
+		unsigned value = obj_code[i];
+		if (monitor_deposit(&monitor, addr, value))
+			return error_set(ERROR_MONITOR, "bootloader_download");
+	}
 //monitor_trace_dump(stderr) ; //debug
-		monitor_close(&monitor);
+	monitor_close(&monitor);
 	return ERROR_OK;
 }
 
 /*
  * Start execution of monitor code
  */
-int bootloader_go(serial_device_t *serialdevice, monitor_type_t monitor_type,
-		int boot_address) {
+int bootloader_go(serial_device_t *serialdevice, monitor_type_t monitor_type, int boot_address) {
 	monitor_t monitor;
 	if (monitor_init(&monitor, serialdevice, monitor_type, stdout))
 		return error_set(ERROR_MONITOR, "monitor_init in bootloader_go");
 	if (monitor_assert_prompt(&monitor))
-		return error_set(ERROR_MONITOR,
-				"monitor_assert_prompt in bootloader_go");
+		return error_set(ERROR_MONITOR, "monitor_assert_prompt in bootloader_go");
 	if (monitor_go(&monitor, boot_address, 0))
 		return error_set(ERROR_MONITOR, "monitor_go in bootloader_go");
 	return ERROR_OK;
@@ -263,12 +258,11 @@ int run_teletype(serial_device_t *serialdevice, monitor_type_t monitor_type, cha
 		return error_set(ERROR_MONITOR, "monitor_init in teletype");
 
 	// console is in RAW mode: so do own CR LF
-	fprintf(stdout,
-			"\r\nTU58FS: teletype session to PDP-11 console opened.\r\n");
-	fprintf(stdout,
-			"TU58FS: Terminate teletype session with ^A ^A double key sequence.\r\n");
+	fprintf(stdout, "\r\nTU58FS: teletype session to PDP-11 console opened.\r\n");
+	fprintf(stdout, "TU58FS: ^G sound is shown as \"<BEL>\"\r\n");
+	fprintf(stdout, "TU58FS: Terminate teletype session with ^A ^A double key sequence.\r\n");
 	if (userinfo)
-		fprintf(stdout,	"TU58FS: %s\r\n", userinfo);
+		fprintf(stdout, "TU58FS: %s\r\n", userinfo);
 	while (!ready) {
 		int status;
 		fd_set readfds;
@@ -305,11 +299,15 @@ int run_teletype(serial_device_t *serialdevice, monitor_type_t monitor_type, cha
 				exitkey1_typed = 1;
 				// do not echo to PDP
 			} else {
-				unsigned char buff[2];
-				// char in buff[0], send it to PDP.
+				char buff[10];
 				exitkey1_typed = 0;
-				buff[0] = c;
-				buff[1] = 0; // char -> string
+				if (c == 0x07)
+					strcpy(buff, "<BEL>");
+				else {
+					// char in buff[0], send it to PDP.
+					buff[0] = c;
+					buff[1] = 0; // char -> string
+				}
 				monitor_puts(&monitor, buff);
 			}
 		}

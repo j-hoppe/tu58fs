@@ -1,42 +1,46 @@
-//
-// serial.c - serial line and console control
-//
-// Original (C) 1984 Dan Ts'o <Rockefeller Univ. Dept. of Neurobiology>
-// Update   (C) 2005-2016 Donald N North <ak6dn_at_mindspring_dot_com>
-//
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions
-// are met:
-//
-// o Redistributions of source code must retain the above copyright
-//   notice, this list of conditions and the following disclaimer.
-//
-// o Redistributions in binary form must reproduce the above copyright
-//   notice, this list of conditions and the following disclaimer in the
-//   documentation and/or other materials provided with the distribution.
-//
-// o Neither the name of the copyright holder nor the names of its
-//   contributors may be used to endorse or promote products derived from
-//   this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
-// TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// This is the TU58 emulation program written at Rockefeller Univ., Dept. of
-// Neurobiology. We copyright (C) it and permit its use provided it is not
-// sold to others. Originally written by Dan Ts'o circa 1984 or so.
-//
+/*
+ *  serial.c - serial line and console control
+ *
+ *  Original (C) 1984 Dan Ts'o <Rockefeller Univ. Dept. of Neurobiology>
+ *  Update   (C) 2005-2016 Donald N North <ak6dn_at_mindspring_dot_com>
+ *
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *  o Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ *  o Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ *  o Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ *  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ *  HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ *  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+ *  TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *  This is the TU58 emulation program written at Rockefeller Univ., Dept. of
+ *  Neurobiology. We copyright (C) it and permit its use provided it is not
+ *  sold to others. Originally written by Dan Ts'o circa 1984 or so.
+ *
+ *  07-May-2017 JH, Don North  compiles under MACOS, passes GCC warning levels -Wall -Wextra
+ *  12-Jan-2017 JH  taken from tu58em
+ *
+*/
 #define _SERIAL_C_
 
 //
@@ -55,7 +59,7 @@
 #include "main.h"	// option flags
 #include "serial.h"	// own
 
-#ifdef MACOSX
+#ifdef __MACH__
 #define IUCLC 0 // Not POSIX
 #define OLCUC 0 // Not POSIX
 #define CBAUD 0 // Not POSIX
@@ -124,6 +128,7 @@ void serial_devrxinit(serial_device_t *serial) {
 //
 int32_t serial_devrxerror(serial_device_t *serial) {
 	// not implemented
+	UNUSED(serial) ;
 	return DEV_NYI;
 }
 
@@ -202,7 +207,7 @@ uint8_t serial_devrxget(serial_device_t *serial) {
 void serial_devtxput(serial_device_t *serial, uint8_t c) {
 
 	// must flush if hit the end of the buffer
-	if (serial->wcnt >= sizeof(serial->wbuf))
+	if (serial->wcnt >= (int)sizeof(serial->wbuf))
 		serial_devtxflush(serial);
 
 	// count, add one character to buffer
@@ -217,12 +222,19 @@ void serial_devtxput(serial_device_t *serial, uint8_t c) {
 //
 // return baud rate mask for a given rate
 //
+#ifdef __MACH__
+static int32_t devbaud(int32_t rate) {
+	static int32_t baudlist[] = { 115200, B115200, 57600,
+			B57600, 38400, B38400, 19200, B19200, 9600, B9600, 4800, B4800, 2400, B2400, 1200,
+			B1200, 600, B600, 300, B300, -1, -1 };
+#else
 static int32_t devbaud(int32_t rate) {
 	static int32_t baudlist[] = { 3000000, B3000000, 2500000, B2500000, 2000000, B2000000,
 			1500000, B1500000, 1152000, B1152000, 1000000, B1000000, 921600, B921600, 576000,
 			B576000, 500000, B500000, 460800, B460800, 230400, B230400, 115200, B115200, 57600,
 			B57600, 38400, B38400, 19200, B19200, 9600, B9600, 4800, B4800, 2400, B2400, 1200,
 			B1200, 600, B600, 300, B300, -1, -1 };
+#endif
 	int32_t *p = baudlist;
 	int32_t r;
 

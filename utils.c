@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  20-Jan-2017  JH  created
  */
 #define _UTILS_C_
@@ -203,7 +204,6 @@ char *strtrim(char *txt) {
 // pad a string right upto "len" with char "c"
 char *strrpad(char *txt, int len, char c) {
 	static char buff[1024];
-	int i = strlen(txt);
 	memset(buff, c, len); // init buffer with base pattern
 	strncpy(buff, txt, strlen(txt));
 	buff[len] = 0;
@@ -221,7 +221,7 @@ char *strprintable(char *s, int size) {
 	for (i= 0 ;  i < size ; i++) {
 		c = s[i] ;
 		// must be room for one more char expr
-		assert(wp-buffer < sizeof(buffer)-5) ;
+		assert(wp-buffer < (int)sizeof(buffer)-5) ;
 		if (c == 0) {
 			strcat(wp, "<NUL>") ;
 			wp += 5 ;
@@ -478,7 +478,6 @@ void hexdump(FILE *stream, uint8_t *data, int size, char *fmt, ...) {
  */
 void *search_tagged_array(void *base, int element_size, int search_val) {
 	uint8_t *ptr = base;
-	int found = 0;
 	int cur_tag;
 
 	cur_tag = *(int *) ptr;

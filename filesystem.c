@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  24-Jan-2017  JH  created
  */
 #define _FILESYSTEM_C_
@@ -48,12 +49,15 @@
 
 char *filesystem_name(filesystem_type_t type) {
 	switch (type) {
+	case fsNONE:
+		return NULL ;
 	case fsXXDP:
 		return "XXDP";
 	case fsRT11:
 		return "RT11";
+	default:
+		return NULL;
 	}
-	return NULL;
 }
 
 filesystem_t *filesystem_create(filesystem_type_t type, device_type_t device_type, int readonly,
@@ -148,7 +152,6 @@ int filesystem_file_add(filesystem_t *_this, char *hostfname, time_t hostfdate, 
 // access file streams, bootblock and monitor in an uniform way
 file_t *filesystem_file_get(filesystem_t *_this, int fileidx) {
 	static file_t result;
-	char *s;
 
 	result.filnam[0] = 0;
 	result.ext[0] = 0;
@@ -157,10 +160,8 @@ file_t *filesystem_file_get(filesystem_t *_this, int fileidx) {
 		xxdp_file_t *f = xxdp_filesystem_file_get(_this->xxdp, fileidx);
 		if (!f)
 			return NULL;
-		if (f->filnam)
-			strcpy(result.filnam, f->filnam);
-		if (f->ext)
-			strcpy(result.ext, f->ext);
+		strcpy(result.filnam, f->filnam);
+		strcpy(result.ext, f->ext);
 		result.stream[0].data = f->data;
 		result.stream[0].data_size = f->data_size;
 		strcpy(result.stream[0].name, ""); // main data
@@ -203,10 +204,8 @@ file_t *filesystem_file_get(filesystem_t *_this, int fileidx) {
 		result.date = f->date;
 		result.fixed = f->fixed;
 
-		if (f->filnam)
-			strcpy(result.filnam, f->filnam);
-		if (f->ext)
-			strcpy(result.ext, f->ext);
+		strcpy(result.filnam, f->filnam);
+		strcpy(result.ext, f->ext);
 	}
 		break;
 	default:
@@ -259,6 +258,8 @@ void filesystem_print_dir(filesystem_t *_this, FILE *stream) {
 	case fsRT11:
 		rt11_filesystem_print_dir(_this->rt11, stream);
 		break;
+	default:
+		;
 	}
 }
 
@@ -270,6 +271,8 @@ void filesystem_print_diag(filesystem_t *_this, FILE *stream) {
 	case fsRT11:
 		rt11_filesystem_print_diag(_this->rt11, stream);
 		break;
+	default:
+		;
 	}
 }
 

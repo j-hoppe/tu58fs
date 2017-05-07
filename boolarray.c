@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  20-Jan-2017  JH  created
  */
 
@@ -80,9 +81,9 @@ int boolarray_bit_get(boolarray_t *_this, uint32_t i) {
 }
 
 // dump state of irst "bitcount" bits
-void boolarray_print_diag(boolarray_t *_this, FILE *stream, int bitcount, char *info) {
+void boolarray_print_diag(boolarray_t *_this, FILE *stream, uint32_t bitcount, char *info) {
 	int any = 0;
-	int start, end;
+	unsigned start, end;
 	if (bitcount <= 0 || bitcount > _this->bitcount)
 		bitcount = _this->bitcount ;
 		fprintf(stream, "%s - Dump of boolarray@%p, bits 0..%d: ", info, _this, bitcount-1);

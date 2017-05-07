@@ -35,6 +35,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017 JH  V 1.2.1	passes GCC warning levels -Wall -Wextra
  *  23-Mar-2017 JH  V 1.2.0 	--boot option
  *  11-Feb-2017 JH  V 1.1.0 	oversized images for rt11 and xxdp
  *  8-Feb-2017 	JH  V 1.0.1 	protect readonly image.
@@ -46,7 +47,7 @@
 
 #define _MAIN_C_
 
-#define VERSION	"v1.2.0"
+#define VERSION	"v1.2.1"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -453,8 +454,8 @@ static void parse_commandline(int argc, char **argv) {
 				|| getopt_isoption(&getopt_parser, "shareddevice")) {
 			int shared = getopt_isoption(&getopt_parser, "shareddevice");
 			int unit;
-			int readonly;
-			int allowcreate;
+			int readonly = 0; // initialize only to silence compiler
+			int allowcreate = 0;
 			char pathbuff[4096];
 			if (getopt_arg_i(&getopt_parser, "unit", &unit) < 0)
 				commandline_option_error(NULL);
@@ -543,9 +544,7 @@ static void parse_commandline(int argc, char **argv) {
 			image_t *img;
 			filesystem_t *pdp_fs;
 			hostdir_t *hostdir;
-			uint8_t *data = NULL; // buffer
 			device_type_t device_type;
-			unsigned data_size = 0;
 			if (getopt_arg_s(&getopt_parser, "filename", filename, sizeof(filename)) < 0)
 				commandline_option_error(NULL);
 			if (getopt_arg_s(&getopt_parser, "dirname", dirname, sizeof(dirname)) < 0)
@@ -619,7 +618,7 @@ static void check_capabilities() {
 	int unit;
 	image_t *img;
 	filesystem_type_t fstype = fsNONE;
-	int fssize;
+	unsigned fssize;
 
 	if (drive_count > 0 && opt_boot_monitor != monitor_none)
 		fatal("--boot function incompatible with device emulation!");
@@ -638,7 +637,7 @@ static void check_capabilities() {
 	// XXDP: boot device #0 oversized?
 	img = tu58image_get(0);
 	if (img && img->dec_filesystem == fsXXDP
-			&& img->data_size != img->device_info->block_count * img->blocksize)
+			&& img->data_size != (unsigned)img->device_info->block_count * img->blocksize)
 		warning("XXDP device #0 is oversized, XXDP2.5 can not boot this");
 
 	//	RT-11: only dd0 and dd1:
@@ -676,7 +675,7 @@ static void check_capabilities() {
 	// RT-11: boot device readonly, if patched?
 	img = tu58image_get(0);
 	if (img && img->dec_filesystem == fsRT11
-			&& img->data_size != img->device_info->block_count * img->blocksize
+			&& img->data_size != (unsigned)img->device_info->block_count * img->blocksize
 			&& !img->readonly)
 		warning("RT-11 device #0 is oversized and on shared dir.\n"
 				"RT-11 v5.3 can not reload image after changed, so should be read-only.\n"
@@ -841,7 +840,6 @@ void run_emulator(void) {
 }
 
 int main(int argc, char *argv[]) {
-	int i, n;
 
 	error_clear();
 	ferr = stdout; // ferr in Eclipse console not visible?
@@ -918,4 +916,5 @@ int main(int argc, char *argv[]) {
 		conrestore();
 		serial_devrestore(&monitor_serial);
 	}
+	return 0 ;
 }

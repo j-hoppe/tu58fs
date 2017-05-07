@@ -32,6 +32,8 @@
  *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
+ *  05-May-2017  JH/Peter Schranz	compile under MACOS
  *  08-Feb-2017	 JH  do not update PDP file system if readonly
  *  20-Jan-2017  JH  created
  *
@@ -71,6 +73,15 @@
 #include "main.h"
 #include "filesystem.h"
 #include "hostdir.h"  // own
+
+
+
+#ifdef __MACH__
+// access to struct stat
+#define STAT_ST_MTIM(sb) (sb).st_mtimespec
+#else
+#define STAT_ST_MTIM(sb) (sb).st_mtim
+#endif
 
 // give the opposite of PDP resp. host
 #define OTHER_SIDE(side) ((side) == side_pdp ? side_host : side_pdp)
@@ -129,9 +140,9 @@ char *state_text(hostdir_side_t side, hostdir_file_state_t state) {
 // if all: also unchanged files
 static void snapshot_print(hostdir_snapshot_t *_this, FILE *stream, int all) {
 	int i;
+	UNUSED(stream) ;
 	for (i = 0; i < _this->file_count; i++) {
 		hostdir_file_t *f;
-		char *msg;
 		f = &_this->file[i];
 		if (all || f->state[side_pdp] != fs_unchanged || f->state[side_host] != fs_unchanged) {
 			info("Unit %d, file %3d: %10s %s, %s.", _this->hostdir->unit,
@@ -159,7 +170,7 @@ static int snapshot_scan_hostdir(hostdir_t *_this) {
 	dfd = opendir(_this->path); // error checking done, compact code
 	// make list of regular files
 	file_to_delete[0] = 0;
-	while (dp = readdir(dfd)) {
+	while ((dp = readdir(dfd))) {
 		sprintf(pathbuff, "%s/%s", _this->path, dp->d_name);
 		// beware of . and .., not regular file
 		if (stat(pathbuff, &sb))
@@ -184,14 +195,14 @@ static int snapshot_scan_hostdir(hostdir_t *_this) {
 			} else {
 				strcpy(f->hostfilename, dp->d_name);
 				if (f->state[side_host] != fs_created) {
-					if (f->host_len != sb.st_size || f->host_mtime != sb.st_mtim.tv_sec)
+					if (f->host_len != sb.st_size || f->host_mtime != STAT_ST_MTIM(sb).tv_sec)
 						f->state[side_host] = fs_changed;
 					else
 						f->state[side_host] = fs_unchanged;
 				}
 				// update to newest state
 				f->host_len = sb.st_size;
-				f->host_mtime = sb.st_mtim.tv_sec;
+				f->host_mtime = STAT_ST_MTIM(sb).tv_sec;
 			}
 		}
 	}
@@ -335,7 +346,7 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 	// delete content
 	if (wipe) {
 		dfd = opendir(_this->path); // error checking done, compact code
-		while (dp = readdir(dfd)) {
+		while ((dp = readdir(dfd))) {
 			sprintf(pathbuff, "%s/%s", _this->path, dp->d_name);
 			// beware of . and ..
 			if (stat(pathbuff, &sb))
@@ -406,7 +417,7 @@ static int pdp_fs_file_add(hostdir_t *_this, filesystem_t *fs, char *fpath, char
 				data_size, pathbuff);
 
 	// add to filesystem
-	filesystem_file_add(fs, fname, sb.st_mtim.tv_sec, sb.st_mode, data, data_size);
+	filesystem_file_add(fs, fname, STAT_ST_MTIM(sb).tv_sec, sb.st_mode, data, data_size);
 
 	free(data);
 	return ERROR_OK;
@@ -428,7 +439,7 @@ int hostdir_to_pdp_fs(hostdir_t *_this) {
 	dfd = opendir(_this->path); // error checking done, compact code
 	filecount = 0;
 	// make list of regular files
-	while (dp = readdir(dfd)) {
+	while ((dp = readdir(dfd))) {
 		sprintf(pathbuff, "%s/%s", _this->path, dp->d_name);
 		// beware of . and ..
 		if (stat(pathbuff, &sb))

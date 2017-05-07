@@ -130,7 +130,7 @@ device_info_t device_info_table[] = {
         .device_name = "RX02",
         .mnemonic = "DY",
         .block_count = 988, // XXDP, pyRT11
-		.block_count = 988
+		.max_block_count = 988
     },
 /*
     {

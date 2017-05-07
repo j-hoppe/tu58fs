@@ -33,7 +33,8 @@
  *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- *  Created on: 22.01.2017
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
+ *  22-Jan-2017  JH  created
  *
  * The RT-11 filesystems allows extra bytes in directory entries
  * and a "prefix" for each files.
@@ -109,7 +110,7 @@ uint8_t rt11_nobootblock[512] = { //
 static uint16_t rt11_image_get_word_at(rt11_filesystem_t *_this, rt11_blocknr_t blocknr,
 		uint32_t byte_offset) {
 	uint32_t idx = RT11_BLOCKSIZE * blocknr + byte_offset;
-	assert(idx >= 0 && (idx + 1) < _this->image_size);
+	assert((idx + 1) < _this->image_size);
 
 	return _this->image_data[idx] | (_this->image_data[idx + 1] << 8);
 }
@@ -117,7 +118,7 @@ static uint16_t rt11_image_get_word_at(rt11_filesystem_t *_this, rt11_blocknr_t 
 static void rt11_image_set_word_at(rt11_filesystem_t *_this, rt11_blocknr_t blocknr,
 		uint32_t byte_offset, uint16_t val) {
 	uint32_t idx = RT11_BLOCKSIZE * blocknr + byte_offset;
-	assert(idx >= 0 && (idx + 1) < _this->image_size);
+	assert((idx + 1) < _this->image_size);
 
 	_this->image_data[idx] = val & 0xff;
 	_this->image_data[idx + 1] = (val >> 8) & 0xff;
@@ -480,7 +481,7 @@ static rt11_file_t *rt11_filesystem_file_by_name(rt11_filesystem_t *_this, char 
 
 static int parse_homeblock(rt11_filesystem_t *_this) {
 	uint16_t w;
-	char *s;
+	uint8_t *s ;
 	int i;
 	int sum;
 
@@ -500,15 +501,15 @@ static int parse_homeblock(rt11_filesystem_t *_this) {
 	strcpy(_this->system_version, rad50_decode(w));
 	// 12 char volume id. V3A, or V05, ...
 	s = IMAGE_BLOCKNR2PTR(_this, 1) + 0730;
-	strncpy(_this->volume_id, s, 12);
+	strncpy(_this->volume_id, (char *)s, 12);
 	_this->volume_id[12] = 0;
 	// 12 char owner name
 	s = IMAGE_BLOCKNR2PTR(_this, 1) + 0744;
-	strncpy(_this->owner_name, s, 12);
+	strncpy(_this->owner_name, (char *)s, 12);
 	_this->owner_name[12] = 0;
 	// 12 char system id
 	s = IMAGE_BLOCKNR2PTR(_this, 1) + 0760;
-	strncpy(_this->system_id, s, 12);
+	strncpy(_this->system_id, (char *)s, 12);
 	_this->system_id[12] = 0;
 	_this->homeblock_chksum = rt11_image_get_word_at(_this, 1, 0776);
 	// verify checksum. But found a RT-11 which writes 0000 here?
@@ -780,7 +781,7 @@ static int rt11_filesystem_layout(rt11_filesystem_t *_this) {
 static void render_homeblock(rt11_filesystem_t *_this) {
 	uint8_t *homeblk = IMAGE_BLOCKNR2PTR(_this, 1);
 	uint16_t w;
-	char *s;
+	uint8_t *s;
 	int i, sum;
 
 	memset(homeblk, 0, RT11_BLOCKSIZE);
@@ -806,15 +807,15 @@ static void render_homeblock(rt11_filesystem_t *_this) {
 	// 12 char volume id. V3A, or V05, ...
 	s = IMAGE_BLOCKNR2PTR(_this, 1) + 0730;
 	// always 12 chars long, right padded with spaces
-	strcpy(s, strrpad(_this->volume_id, 12, ' '));
+	strcpy((char *)s, strrpad(_this->volume_id, 12, ' '));
 
 	// 12 char owner name
 	s = IMAGE_BLOCKNR2PTR(_this, 1) + 0744;
-	strcpy(s, strrpad(_this->owner_name, 12, ' '));
+	strcpy((char *)s, strrpad(_this->owner_name, 12, ' '));
 
 	// 12 char system id
 	s = IMAGE_BLOCKNR2PTR(_this, 1) + 0760;
-	strcpy(s, strrpad(_this->system_id, 12, ' '));
+	strcpy((char *)s, strrpad(_this->system_id, 12, ' '));
 
 	// build checksum over all words
 	for (sum = i = 0; i < 0776; i += 2)
@@ -1048,7 +1049,7 @@ int rt11_filesystem_unpatch(rt11_filesystem_t *_this) {
 static void rt11_filesystem_render_volumeinfo(rt11_filesystem_t *_this, rt11_file_t *f) {
 	// static stream instance as buffer for name=value text
 	static rt11_stream_t stream_buffer;
-	static uint8_t text_buffer[4096 + RT11_MAX_FILES_PER_IMAGE * 80]; // listing for all files
+	static char text_buffer[4096 + RT11_MAX_FILES_PER_IMAGE * 80]; // listing for all files
 	char line[1024];
 	int i;
 	time_t t = time(NULL);
@@ -1122,7 +1123,7 @@ static void rt11_filesystem_render_volumeinfo(rt11_filesystem_t *_this, rt11_fil
 	strcat(text_buffer, "\n");
 
 	stream_init(&stream_buffer);
-	stream_buffer.data = text_buffer;
+	stream_buffer.data = (uint8_t *)text_buffer;
 	stream_buffer.data_size = strlen(text_buffer);
 	assert(stream_buffer.data_size < sizeof(text_buffer)); // buffer overun?
 	f->data = &stream_buffer;
@@ -1177,7 +1178,6 @@ int rt11_filesystem_file_stream_add(rt11_filesystem_t *_this, char *hostfname, c
 		//1. find file
 		rt11_file_t *f;
 		char filnam[40], ext[40];
-		char *s;
 		int i;
 		rt11_stream_t **streamptr;
 		// regular file

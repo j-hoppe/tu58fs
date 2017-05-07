@@ -1,42 +1,44 @@
-/* tu58device.c - server for TU58 protocol, ctrl over seriaql line, work on image
+/*  tu58device.c - server for TU58 protocol, ctrl over seriaql line, work on image
  *
- * Original (C) 1984 Dan Ts'o <Rockefeller Univ. Dept. of Neurobiology>
- * Update   (C) 2005-2016 Donald N North <ak6dn_at_mindspring_dot_com>
- * Update   (C) 2017 Joerg Hoppe <j_hoppe@t-online.de>, www.retrocmp.com
+ *  Original (C) 1984 Dan Ts'o <Rockefeller Univ. Dept. of Neurobiology>
+ *  Update   (C) 2005-2016 Donald N North <ak6dn_at_mindspring_dot_com>
+ *  Update   (C) 2017 Joerg Hoppe <j_hoppe@t-online.de>, www.retrocmp.com
  *
- * All rights reserved.
+ *  All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
  *
- * o Redistributions of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
+ *  o Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
  *
- * o Redistributions in binary form must reproduce the above copyright
- *   notice, this list of conditions and the following disclaimer in the
- *   documentation and/or other materials provided with the distribution.
+ *  o Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- * o Neither the name of the copyright holder nor the names of its
- *   contributors may be used to endorse or promote products derived from
- *   this software without specific prior written permission.
+ *  o Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
- * TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ *  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ *  HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ *  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+ *  TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * This is the TU58 emulation program written at Rockefeller Univ., Dept. of
- * Neurobiology. We copyright (C) it and permit its use provided it is not
- * sold to others. Originally written by Dan Ts'o circa 1984 or so.
+ *  This is the TU58 emulation program written at Rockefeller Univ., Dept. of
+ *  Neurobiology. We copyright (C) it and permit its use provided it is not
+ *  sold to others. Originally written by Dan Ts'o circa 1984 or so.
  *
+ *  07-May-2017 JH, Don North  compiles under MACOS, passes GCC warning levels -Wall -Wextra
+ *  12-Jan-2017 JH  taken from tu58em
  */
 #define _TU58DRIVE_C_
 
@@ -65,18 +67,21 @@ image_t *tu58_image[TU58_DEVICECOUNT];
 // the serial port
 serial_device_t tu58_serial;
 
-#ifdef MACOSX
-// clock_gettime() is not available under OSX
+#ifdef __MACH__
+// clock_gettime() is not available under MAC OSX
 #define CLOCK_REALTIME 1
 #include <mach/mach_time.h>
-
-void clock_gettime(int dummy, timespec_t *t) {
+#include <mach/clock.h>
+#include <mach/mach.h>
+void clock_gettime(int dummy, struct timespec *t) {
 	uint64_t mt;
+	UNUSED(dummy) ;
 	mt = mach_absolute_time();
 	t->tv_sec = mt / 1000000000;
 	t->tv_nsec = mt % 1000000000;
 }
 #endif
+
 
 // delays for modeling device access
 
@@ -810,6 +815,7 @@ static void command(int8_t flag) {
 void* tu58_server(void* none) {
 	uint8_t flag = TUF_NULL;
 	uint8_t last = TUF_NULL;
+	UNUSED(none);
 
 	// some init
 	reinit(); // empty serial line buffers
@@ -959,6 +965,7 @@ void* tu58_monitor(void* none) {
 	int32_t sts;
 	uint64_t now;
 	uint64_t next_sync_time;
+	UNUSED(none) ;
 
 	next_sync_time = now_ms() + opt_synctimeout_sec * 1000;
 	for (;;) {

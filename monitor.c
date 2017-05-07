@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  24-Mar-2017  JH  created
  *
  */
@@ -115,6 +116,7 @@ int monitor_init(monitor_t *_this, serial_device_t *serial, monitor_type_t monit
 }
 
 void monitor_close(monitor_t *_this) {
+	UNUSED(_this) ;
 	// tty closed by caller
 	monitor_trace_clear();
 }
@@ -164,6 +166,8 @@ void monitor_trace_dump(FILE *f) {
 	}
 
 	monitor_trace_clear();
+#else
+	UNUSED(f) ;
 #endif
 }
 
@@ -171,7 +175,7 @@ void monitor_trace_dump(FILE *f) {
 // direction 1 = "In" = received from PDP
 // direction 0 = "Out" = transmitted to PDP
 // info: code in monitor logic
-static void monitor_trace(char *data, int data_size, int type, char *infofmt, ...) {
+static void monitor_trace(char *data, unsigned data_size, int type, char *infofmt, ...) {
 #ifdef TRACE
 	va_list args;
 	char buff[1024];
@@ -200,6 +204,11 @@ static void monitor_trace(char *data, int data_size, int type, char *infofmt, ..
 	vsprintf(buff, infofmt, args);
 	va_end(args);
 	te->info = strdup(buff);
+#else
+	UNUSED(data) ;
+	UNUSED(data_size) ;
+	UNUSED(type) ;
+	UNUSED(infofmt) ;
 #endif
 }
 
@@ -287,8 +296,8 @@ int monitor_assert_prompt(monitor_t *_this) {
 // fetch data send from PDP with max RS232 speed.
 // wait "timeout" for 1st char, then wait for RS232 transmission period.
 char *monitor_gets(monitor_t *_this, int timeout_us) {
-	static char buffer[1024];
-	int charcount;
+	static char buffer[10240];
+	unsigned charcount;
 	int c;
 
 	charcount = 0;
@@ -491,7 +500,6 @@ static int monitor_m9312_deposit(monitor_t *_this, unsigned address, unsigned va
 // if "no_go", then the final "G" is not send
 // result: > 0, if success
 static int monitor_m9312_go(monitor_t *_this, unsigned address, int no_go) {
-	char buffer[256];
 	char *s;
 
 	// set start address

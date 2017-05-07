@@ -6,24 +6,27 @@
 PROG = tu58fs
 
 # compiler flags and libraries
-CC_DBG_FLAGS = -ggdb3 -O0
-LDFLAGS = -lpthread -lrt
+CC_DBG_FLAGS = -ggdb3 -O0 -Wall -Wextra
 
 ifeq ($(MAKE_TARGET_ARCH),BBB)
 	CC=$(BBB_CC) -std=c99 -U__STRICT_ANSI__
+	LDFLAGS = -lpthread -lrt
 	OBJDIR=bin-bbb
 else ifeq ($(MAKE_TARGET_ARCH),RPI)
 	CC=arm-linux-gnueabihf-gcc -std=c99 -U__STRICT_ANSI__
+	LDFLAGS = -lpthread -lrt
 	OBJDIR=bin-rpi
 else ifeq ($(MAKE_TARGET_ARCH),CYGWIN)
     # compiling under CYGWIN
     OS_CCDEFS=
+	LDFLAGS = -lpthread
 	OBJDIR=bin-cygwin
 #    OS_CCDEFS=-m32
     PROG = tu58fs.exe
 else
     # compiling for X64
     OS_CCDEFS=-m64
+	LDFLAGS = -lpthread
 	OBJDIR=bin-ubuntu-x64
 endif
 

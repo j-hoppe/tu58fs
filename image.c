@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  20-Jan-2017  JH  created
  *
  *
@@ -145,8 +146,6 @@ static void image_unlock(image_t *_this) {
 // opens image file or creates it
 static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated) {
 	int32_t fd;		// file descriptor
-	// open binary host file
-	int blockcount;
 
 	*filecreated = 0;
 
@@ -172,7 +171,7 @@ static int image_hostfile_open(image_t *_this, int allowcreate, int *filecreated
 	if (!*filecreated) {
 		// existing file
 		int res;
-		if (_this->host_fattr.st_size > _this->data_size) { // trunc ?
+		if ((unsigned)_this->host_fattr.st_size > _this->data_size) { // trunc ?
 			if (!is_fileset(_this->host_fpath, 0, _this->data_size))
 				fatal(
 						"File \"%s\" is %d blocks, shall be trunc'd to %d blocks, non-zero data would be lost",
@@ -403,7 +402,6 @@ int image_write(image_t *_this, void *buf, int32_t count) {
 
 // write image data to disk
 int image_save(image_t *_this) {
-	int res;
 	if (!_this->open)
 		return error_set(ERROR_IMAGE_MODE, "image_save(): closed unit %d", _this->unit);
 
@@ -433,7 +431,7 @@ int image_save(image_t *_this) {
 // write to disk, if unsave
 // what if disk content and image has changed?
 int image_sync(image_t *_this) {
-	int result;
+	int result = ERROR_OK;
 	if (_this->open) {
 		if (_this->shared) {
 			// merge files in the image and the shared directory
@@ -445,8 +443,7 @@ int image_sync(image_t *_this) {
 			if (_this->changed)
 				result = image_save(_this);
 		}
-	} else
-		result = ERROR_OK;
+	}
 	boolarray_clear(_this->changedblocks);
 	return result;
 }

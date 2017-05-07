@@ -34,6 +34,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  20-Jul-2016  JH	added defaults for options
  *  17-Mar-2016  JH	allow "/" option marker only #ifdef WIN32
  *  01-Feb-2016  JH   created
@@ -225,7 +226,7 @@ getopt_option_descr_t	*getopt_def(getopt_t *_this,
 	// calc global maximum of short_names
 	_this->max_short_name_len = 0 ;
 	// determine longest "short_name"
-	for (i = 0; odesc = _this->option_descrs[i]; i++)
+	for (i = 0; (odesc = _this->option_descrs[i]); i++)
 		if (odesc->short_name && strlen(odesc->short_name) > _this->max_short_name_len)
 			_this->max_short_name_len = strlen(odesc->short_name) ;
 
@@ -361,7 +362,7 @@ int getopt_next(getopt_t *_this)
 	if (oname) {
 		// it is an "-option": search options by name
 		_this->cur_option = NULL;
-		for (i = 0; odesc = _this->option_descrs[i]; i++)
+		for (i = 0; (odesc = _this->option_descrs[i]); i++)
 			if (!getopt_strcmp(_this, oname, odesc->short_name) || !getopt_strcmp(_this, oname, odesc->long_name))
 				_this->cur_option = odesc; // found by name
 		if (_this->cur_option == NULL) {
@@ -436,7 +437,7 @@ int getopt_first(getopt_t *_this, int argc, char **argv)
 	// so they are parsed first and overwritten later by actual values
 	// 1) build own cmdline
 	*cb = 0; // clear
-	for (i = 0; odesc = _this->option_descrs[i]; i++)
+	for (i = 0; (odesc = _this->option_descrs[i]); i++)
 		if (odesc->default_args && strlen(odesc->default_args)) {
 			strcat(cb, "--");
 			strcat(cb, odesc->long_name);
@@ -613,7 +614,6 @@ static char *getopt_getoptionsyntax(getopt_option_descr_t *odesc, int style)
 //	getopt_t *_this, getopt_option_descr_t *odesc)
 {
 	static char buffer[2 * GETOPT_MAX_LINELEN];
-	getopt_option_descr_t *odesc1 ;
 	unsigned i;
 	char *s;
 
@@ -643,12 +643,12 @@ static char *getopt_getoptionsyntax(getopt_option_descr_t *odesc, int style)
 		}
 	}
 
-	for (i = 0; s = odesc->fix_args[i]; i++) {
+	for (i = 0; (s = odesc->fix_args[i]); i++) {
 		strncat(buffer, " <", sizeof(buffer) - 1);
 		strncat(buffer, s, sizeof(buffer) - 1);
 		strncat(buffer, ">", sizeof(buffer) - 1);
 	}
-	for (i = 0; s = odesc->var_args[i]; i++) {
+	for (i = 0; (s = odesc->var_args[i]); i++) {
 		strncat(buffer, " ", sizeof(buffer) - 1);
 		if (i == 0) strncat(buffer, "[", sizeof(buffer) - 1);
 		strncat(buffer, "<", sizeof(buffer) - 1);
@@ -748,16 +748,16 @@ void getopt_help(getopt_t *_this, FILE *stream, unsigned linelen, unsigned inden
 	// 1.1. print options
 	//fprintf(stream, "Command line summary:\n");
 	snprintf(linebuff, sizeof(linebuff), "%s ", commandname);
-	for (i = 0; odesc = _this->option_descrs[i]; i++) {
+	for (i = 0; (odesc = _this->option_descrs[i]); i++) {
 		// mount a single "-option arg arg [arg arg]"
 		strncpy(phrase, getopt_getoptionsyntax(odesc, 0), sizeof(phrase));
-		strncat(linebuff, " ", sizeof(linebuff));
+		strncat(linebuff, " ", sizeof(linebuff)-1);
 		output_append(stream, linebuff, sizeof(linebuff), phrase, /*linebreak*/0, linelen, indent);
 	}
 	// 1.2. print non-option cline arguments
 	if (_this->nonoption_descr) {
 		strncpy(phrase, getopt_getoptionsyntax(_this->nonoption_descr, 0), sizeof(phrase));
-		strncat(linebuff, " ", sizeof(linebuff));
+		strncat(linebuff, " ", sizeof(linebuff)-1);
 		output_append(stream, linebuff, sizeof(linebuff), phrase, /*linebreak*/0, linelen, indent);
 	}
 
@@ -771,7 +771,7 @@ void getopt_help(getopt_t *_this, FILE *stream, unsigned linelen, unsigned inden
 	if (_this->nonoption_descr)
 		getopt_help_option_intern(_this->nonoption_descr, stream, linelen, indent);
 	// now options
-	for (i = 0; odesc = _this->option_descrs[i]; i++)
+	for (i = 0; (odesc = _this->option_descrs[i]); i++)
 		getopt_help_option_intern(_this->option_descrs[i], stream, linelen, indent);
 
 	if (_this->ignore_case)

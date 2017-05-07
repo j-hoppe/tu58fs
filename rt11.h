@@ -33,7 +33,8 @@
  *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- *  Created on: 12.01.2017
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
+ *  12-Jan-2017  JH  created
  */
 #ifndef _RT11_H_
 #define _RT11_H_
@@ -154,7 +155,7 @@ typedef struct {
 
 	int struct_changed ; // directories or homeblock changed
 
-	int file_count;
+	int file_count; // signed, because there are negative file_idx
 	rt11_file_t *file[RT11_MAX_FILES_PER_IMAGE];
 
 	// cache directory statistics

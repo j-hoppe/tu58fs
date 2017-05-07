@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  24-Jan-2017  JH  created
  */
 #ifndef _FILESYSTEM_H_
@@ -91,7 +92,7 @@ typedef struct {
 	xxdp_filesystem_t *xxdp ;
 	rt11_filesystem_t *rt11 ;
 
-	int	*file_count ; // virtual property
+	int	*file_count ; // virtual property.
 
 } filesystem_t ;
 

@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  20-Jan-2017  JH  created
  */
 
@@ -42,6 +43,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <time.h>
+
+// mark unused parameters
+// http://stackoverflow.com/questions/1486904/how-do-i-best-silence-a-warning-about-unused-variables
+#define UNUSED(expr) do { (void)(expr); } while (0)
 
 
 // how many blocks are needed to hold "byte_count" bytes?

@@ -33,6 +33,7 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
+ *  07-May-2017  JH  passes GCC warning levels -Wall -Wextra
  *  20-Jan-2017  JH  created
  *
  *
@@ -80,7 +81,7 @@ typedef struct {
 	// memory buffer for image
 	device_type_t dec_device ; // TU58
 	filesystem_type_t dec_filesystem; // fsgeneric, fsxxdp, fsrt11
-	uint32_t data_size; // count of allocated bytzes in ->data
+	uint32_t data_size; // count of allocated bytes in ->data
 	uint8_t *data; // dynamic
 	uint32_t seekpos; //read/write pointer, result of seek(). next unread byte
 } image_t;
