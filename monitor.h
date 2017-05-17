@@ -62,7 +62,7 @@ typedef struct {
 } monitor_t;
 
 int monitor_init(monitor_t *_this, serial_device_t *serial,
-		monitor_type_t monitor_type, FILE *hostconsole);
+		monitor_type_t monitor_type, FILE *hostconsole, int user_delay);
 int monitor_assert_prompt(monitor_t *_this);
 char *monitor_gets(monitor_t *_this, int timeout_us);
 int monitor_puts(monitor_t *_this, char *s);

@@ -35,8 +35,9 @@
  *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *
- *  07-May-2017 JH  V 1.2.1	passes GCC warning levels -Wall -Wextra
- *  23-Mar-2017 JH  V 1.2.0 	--boot option
+ *  17-May-2017 JH  V 1.3.0     new option "--usbdelay" for "--boot"
+ *  07-May-2017 JH  V 1.2.1	    passes GCC warning levels -Wall -Wextra
+ *  23-Mar-2017 JH  V 1.2.0     --boot option
  *  11-Feb-2017 JH  V 1.1.0 	oversized images for rt11 and xxdp
  *  8-Feb-2017 	JH  V 1.0.1 	protect readonly image.
  *  6-Feb-2017 	JH  V 1.0.0		releases for Ubuntu/BBB/RPI,Cygwin tested & published
@@ -47,7 +48,7 @@
 
 #define _MAIN_C_
 
-#define VERSION	"v1.2.1"
+#define VERSION	"v1.3.0"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -96,6 +97,7 @@ int opt_vax = 0; // set to remove delays for aggressive VAX console timeouts
 int opt_background = 0; // set to run in background mode (no console I/O except errors)
 int opt_synctimeout_sec = 0; // save changed image to disk after so many seconds of write-inactivity
 int opt_offlinetimeout_sec = 5; // disabled: TU58 waits with "offline" until so many seconds of RS232-inactivity
+int opt_usbdelay = 0; // extra delay of RS232 over USB adapters
 
 monitor_type_t opt_boot_monitor = monitor_none;
 int opt_boot_address = 07000; // end of first 4k page
@@ -165,6 +167,9 @@ static char * examples[] =
 				"    After that the terminal window remains active, so you have a primitive\n", //
 				"    teletype to operate the booted PDP_11\n"
 						"\n", //
+				PROGNAME " -p 9 -b 115200 --usbdelay 10 --boot odt 1\n", //
+				"    Boot under MS-Windows. Console connected to COM9, an USB-RS2323 adapter.\n",
+				"    The console DL11 is tuned for 115200 baudrate, the USB dongle needs 10 ms extra delay (FTDI!)\n",
 				NULL };
 
 void help() {
@@ -361,7 +366,12 @@ static void parse_commandline(int argc, char **argv) {
 					"  with the HALT/RUN switch in RUN position.\n"
 					"- the bootloader doesn't catch any TRAPs, so turn off the BEVENT/LTC signal.\n"
 					"  The code is loaded at end of first 4k page at address 7000.\n",
-
+					NULL, NULL, NULL, NULL);
+	getopt_def(&getopt_parser, "ud", "usbdelay", "milliseconds", NULL, NULL,
+			"Specifies extra delay for protocol in \"--boot\" operation.\n"
+			"Some USB-RS232 adapters have large delays when polling input (for example FTDIs).\n"
+			"Other brands (Prolific) and non-USB RS232 ports should never need this.\n"
+			"Experiment for an optimum between download speed and reliability, recommended range 5-20.",
 			NULL, NULL, NULL, NULL);
 
 	/*
@@ -603,8 +613,10 @@ static void parse_commandline(int argc, char **argv) {
 					commandline_option_error(NULL);
 				// evaluation later in main()
 			}
+		} else if (getopt_isoption(&getopt_parser, "usbdelay")) {
+			if (getopt_arg_i(&getopt_parser, "milliseconds", &opt_usbdelay) < 0)
+				commandline_option_error(NULL);
 		}
-
 		res = getopt_next(&getopt_parser);
 	}
 	if (res == GETOPT_STATUS_MINARGCOUNT || res == GETOPT_STATUS_MAXARGCOUNT)

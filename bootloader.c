@@ -44,6 +44,7 @@
 #include <errno.h>
 
 #include "error.h"
+#include "main.h"
 #include "serial.h"
 #include "monitor.h"
 #include "bootloader.h"     // own
@@ -208,7 +209,7 @@ int bootloader_download(serial_device_t *serialdevice, monitor_type_t monitor_ty
 	monitor_t monitor;
 	unsigned i;
 
-	if (monitor_init(&monitor, serialdevice, monitor_type, stdout))
+	if (monitor_init(&monitor, serialdevice, monitor_type, stdout, opt_usbdelay))
 		return error_set(ERROR_MONITOR, "monitor_init in bootloader_download");
 	if (monitor_assert_prompt(&monitor))
 		return error_set(ERROR_MONITOR,
@@ -231,7 +232,7 @@ int bootloader_download(serial_device_t *serialdevice, monitor_type_t monitor_ty
  */
 int bootloader_go(serial_device_t *serialdevice, monitor_type_t monitor_type, int boot_address) {
 	monitor_t monitor;
-	if (monitor_init(&monitor, serialdevice, monitor_type, stdout))
+	if (monitor_init(&monitor, serialdevice, monitor_type, stdout, opt_usbdelay))
 		return error_set(ERROR_MONITOR, "monitor_init in bootloader_go");
 	if (monitor_assert_prompt(&monitor))
 		return error_set(ERROR_MONITOR, "monitor_assert_prompt in bootloader_go");
@@ -254,7 +255,7 @@ int run_teletype(serial_device_t *serialdevice, monitor_type_t monitor_type, cha
 	int exitkey1_typed = 0; // 1 if 1st exit hotkey typed
 
 	// no user echo to stdout by monitor_*() functions
-	if (monitor_init(&monitor, serialdevice, monitor_type, NULL))
+	if (monitor_init(&monitor, serialdevice, monitor_type, NULL, opt_usbdelay))
 		return error_set(ERROR_MONITOR, "monitor_init in teletype");
 
 	// console is in RAW mode: so do own CR LF

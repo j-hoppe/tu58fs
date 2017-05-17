@@ -79,7 +79,7 @@ static trace_entry_t *trace_entry[TRACE_ENTRY_COUNT + 1];
 // check "tty" is internal
 // result: 0 = OK
 int monitor_init(monitor_t *_this, serial_device_t *serial, monitor_type_t monitor_type,
-		FILE *fecho) {
+		FILE *fecho, int extra_delay_ms) {
 	_this->serial = serial;
 	_this->fecho = fecho;
 	_this->monitor_type = monitor_type;
@@ -105,10 +105,14 @@ int monitor_init(monitor_t *_this, serial_device_t *serial, monitor_type_t monit
 	_this->chartime_us = (1000000 * serial->bitcount) / _this->serial->baudrate;
 	//
 	// Wait for CPU reponse: 10 milli seconds CPU
-	// 1 char time transfer to CPU, 1 char response, 1 char reserve
-	_this->responsetime_us = 10000 + 5 * _this->chartime_us;
+	// 1 char time transfer to CPU, 1 char response, 1 char reserve ?
+	// _this->responsetime_us = 10000 + 5 * _this->chartime_us;
 	// worst case: M9301 at 300 baud: needs 10 chars?!
 	_this->responsetime_us = 10000 + 10 * _this->chartime_us;
+
+	// user slow-down for SUB-RS232 dongles. FTDI are worst, Prolific OK.
+	// 1 timing unit = 10ms extra
+	_this->responsetime_us += 1000 * extra_delay_ms ;
 
 	_this->last_address = 0xffffffff; // invalidate
 

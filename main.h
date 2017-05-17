@@ -56,6 +56,7 @@ extern int opt_vax ; // set to remove delays for aggressive VAX console timeouts
 extern int opt_background ; // set to run in background mode (no console I/O except errors)
 extern int opt_synctimeout_sec ; // save changed image to disk after so many seconds of write-inactivity
 extern int opt_offlinetimeout_sec ; // TU58 waits with "offline" until so many seconds of RS232-inactivity
+extern int opt_usbdelay ; // extra delay of RS232 over USB adapters
 
 #endif
 
