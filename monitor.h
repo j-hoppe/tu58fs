@@ -47,7 +47,8 @@ typedef enum {
 	monitor_showcode = 1,
 	monitor_odt = 2,
 	monitor_m9312 = 3,
-	monitor_m9301 = 4
+	monitor_m9301 = 4,
+	monitor_1144 = 5
 } monitor_type_t;
 
 // monitor state machine

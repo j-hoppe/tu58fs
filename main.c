@@ -356,7 +356,7 @@ static void parse_commandline(int argc, char **argv) {
 					"The TU58 emulator must have been started on a different serial port before.\n"
 					"<port> and <baudrate> of the console are set by \"-p\" and \"-b\" options\n"
 					"  left of \"--boot\".\n"
-					"<monitor> specifies the implemented console: \"odt\", \"m9312\", or \"m9301\".\n"
+					"<monitor> specifies the implemented console: \"odt\", \"m9312\", \"1144\", or \"m9301\".\n"
 					"  \"code\" displays the bootloader code as value/address pairs on stdout.\n"
 					"With <keep>=1 the transfer dialog terminal window remains active, so you can\n"
 					"  immediately operate the booted TU58 OS. With <keep>=0 connection is terminated and\n"
@@ -606,6 +606,8 @@ static void parse_commandline(int argc, char **argv) {
 					opt_boot_monitor = monitor_m9312;
 				else if (!strcasecmp("M9301", buff))
 					opt_boot_monitor = monitor_m9301;
+                else if (!strcasecmp("1144", buff))
+                    opt_boot_monitor = monitor_1144;
 				else
 					commandline_option_error("Illegal monitor \"%s\"", buff);
 
