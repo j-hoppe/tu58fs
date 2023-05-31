@@ -96,6 +96,9 @@ int monitor_init(monitor_t *_this, serial_device_t *serial, monitor_type_t monit
 	case monitor_m9301:
 		_this->prompt = "$"; // and NUL appended
 		break;
+	case monitor_1144:
+		_this->prompt = ">>>";
+		break;
 	default:
 		return error_set(ERROR_MONITOR, "monitor_init(): Illegal boot monitor %u selected",
 				monitor_type);
@@ -524,6 +527,49 @@ static int monitor_m9312_go(monitor_t *_this, unsigned address, int no_go) {
 	return ERROR_OK;
 }
 
+// deposit memory cells
+//  ">>>" prompt must have been verified!
+static int monitor_1144_deposit(monitor_t *_this, unsigned address, unsigned value) {
+    char buffer[256];
+    char *answer;
+
+    // deposit
+    sprintf(buffer, "D %o %o", address, value);
+    if (monitor_puts_echocheck(_this, buffer, _this->responsetime_us)) // verify digits
+        return error_code;
+    monitor_puts(_this, CR);
+    answer = monitor_gets(_this, _this->responsetime_us); // read prompt
+    if (monitor_wait_prompt(_this, answer))
+        return error_set(ERROR_MONITOR, "PDP-11/44 deposit: %s-prompt not found",
+                         _this->prompt);
+    return ERROR_OK;
+}
+
+// Start a program.
+// after odt_init(), HALT is set and  ODT prompt is there
+// go back to RUN,
+// then type "<addr>G".
+// if "no_go", then the final "G" is not send
+// result: > 0, if success
+static int monitor_1144_go(monitor_t *_this, unsigned address, int no_go) {
+    char buffer[256];
+    char *s;
+
+    sprintf(buffer, "S %o", address);
+    if (monitor_puts_echocheck(_this, buffer, _this->responsetime_us)) // verify digits
+        return error_code;
+
+    if(! no_go) {
+        monitor_puts(_this, CR);
+        // L<CR> starts program execution
+        // echo all command output, wait 1 second
+        do {
+            s = monitor_gets(_this, _this->responsetime_us);
+        } while (s && strlen(s));
+    }
+    return ERROR_OK;
+}
+
 /*
  * Function distribution to different monitor logic
  */
@@ -534,6 +580,8 @@ int monitor_deposit(monitor_t *_this, unsigned address, unsigned value) {
 	case monitor_m9312:
 	case monitor_m9301: // only difference is the prompt
 		return monitor_m9312_deposit(_this, address, value);
+        case monitor_1144:
+            return monitor_1144_deposit(_this, address, value);
 	default:
 		return error_set(ERROR_MONITOR, "monitor_deposit(): Illegal boot monitor %u selected",
 				_this->monitor_type);
@@ -547,6 +595,8 @@ int monitor_go(monitor_t *_this, unsigned address, int no_go) {
 	case monitor_m9312:
 	case monitor_m9301: // only difference is the prompt
 		return monitor_m9312_go(_this, address, no_go);
+        case monitor_1144:
+            return monitor_1144_go(_this, address, no_go);
 	default:
 		return error_set(ERROR_MONITOR, "monitor_go(): Illegal boot monitor %u selected",
 				_this->monitor_type);
