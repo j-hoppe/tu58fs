@@ -356,8 +356,8 @@ int leapyear(int y) {
 	return ((y % 4 == 0) && (y % 100 != 0)) || (y % 400 == 0);
 }
 
-int monthlen_noleap[] = { 31, 28, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-int monthlen_leap[] = { 31, 29, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+int monthlen_noleap[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+int monthlen_leap[] = { 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
 // convert a DOS-11 data to time_t
 // day = 5 bits, month= 4bits, year = 9bits
