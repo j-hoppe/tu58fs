@@ -1,8 +1,9 @@
-/*  tu58device.c - server for TU58 protocol, ctrl over seriaql line, work on image
+/*  tu58device.c - server for TU58 protocol, ctrl over serial line, work on image
  *
  *  Original (C) 1984 Dan Ts'o <Rockefeller Univ. Dept. of Neurobiology>
  *  Update   (C) 2005-2016 Donald N North <ak6dn_at_mindspring_dot_com>
  *  Update   (C) 2017 Joerg Hoppe <j_hoppe@t-online.de>, www.retrocmp.com
+ *  Update   (C) 2024 June Tate-Gans <june@theonelab.com>, www.nybblesandbytes.net
  *
  *  All rights reserved.
  *
@@ -37,6 +38,7 @@
  *  Neurobiology. We copyright (C) it and permit its use provided it is not
  *  sold to others. Originally written by Dan Ts'o circa 1984 or so.
  *
+ *  21-Jul-2024 June Tate-Gans  fixes for macos build, add configuration header
  *  07-May-2017 JH, Don North  compiles under MACOS, passes GCC warning levels -Wall -Wextra
  *  12-Jan-2017 JH  taken from tu58em
  */
@@ -58,6 +60,7 @@
 #include "image.h"
 #include "main.h"	// option flags
 #include "serial.h"
+#include "config.h"	// host compiler configuration
 #include "tu58.h"	// protocoll
 #include "tu58drive.h"	// own
 
@@ -67,8 +70,8 @@ image_t *tu58_image[TU58_DEVICECOUNT];
 // the serial port
 serial_device_t tu58_serial;
 
-#ifdef __MACH__
-// clock_gettime() is not available under MAC OSX
+#if !defined(HAVE_CLOCK_GETTIME)
+// clock_gettime() is not available under older macos versions.
 #define CLOCK_REALTIME 1
 #include <mach/mach_time.h>
 #include <mach/clock.h>
