@@ -331,12 +331,14 @@ int hostdir_prepare(hostdir_t *_this, int wipe, int allowcreate, int *created) {
 	f = fopen(pathbuff, "w");
 	if (!f)
 		ok = 0;
-	if (fputs("test", f) < 0)
-		ok = 0;
-	if (fclose(f))
-		ok = 0;
-	if (remove(pathbuff))
-		ok = 0;
+	else {
+		if (fputs("test", f) < 0)
+			ok = 0;
+		if (fclose(f))
+			ok = 0;
+		if (remove(pathbuff))
+			ok = 0;
+	}
 	if (!ok)
 		return error_set(ERROR_HOSTDIR, "Unit %d: Can't work with dir \"%s\"", _this->unit, _this->path);
 
