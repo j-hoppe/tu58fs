@@ -604,7 +604,9 @@ static int parse_directory(rt11_filesystem_t *_this) {
 					f->date.tm_year = 72 + (w & 0x1f) + 32 * ((w >> 14) & 3);
 					f->date.tm_mday = (w >> 5) & 0x1f;
 					f->date.tm_mon = ((w >> 10) & 0x0f) - 1;
-				} else { // oldest: 1-jan-72
+				}
+				// oldest: 1-jan-72
+				if (!w || f->date.tm_mon > 11 || f->date.tm_mon < 0) {
 					f->date.tm_year = 72;
 					f->date.tm_mday = 1;
 					f->date.tm_mon = 0;
@@ -892,9 +894,9 @@ static int render_directory_entry(rt11_filesystem_t *_this, rt11_file_t *f, int 
 		IMAGE_PUT_WORD(de + 4, f->block_count);
 		// clr job/channel
 		IMAGE_PUT_WORD(de + 5, 0);
-		//date. do not set "age", as it is not evaluated by DEC software.
-		// year already in range 1972..1999
-		w = f->date.tm_year - 72;
+		// date. set "age", RT-11 5.6 and newer interprets it.
+		w = (f->date.tm_year - 72) & 037;
+		w |= ((f->date.tm_year - 72) & 0140) << 9;
 		w |= f->date.tm_mday << 5;
 		w |= (f->date.tm_mon + 1) << 10;
 		IMAGE_PUT_WORD(de + 6, w);
@@ -1209,11 +1211,8 @@ int rt11_filesystem_file_stream_add(rt11_filesystem_t *_this, char *hostfname, c
 			strcpy(f->ext, ext);
 
 			f->date = *localtime(&hostfdate);
-			// only range 1972..1999 allowed
 			if (f->date.tm_year < 72)
 				f->date.tm_year = 72;
-			else if (f->date.tm_year > 99)
-				f->date.tm_year = 99;
 			f->readonly = 0; // set from data stream
 		}
 		streamptr = NULL;
@@ -1296,7 +1295,7 @@ static char *rt11_date_text(struct tm t) {
 	char *mon[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
 			"Dec" };
 	static char buff[80];
-	sprintf(buff, "%02d-%3s-%02d", t.tm_mday, mon[t.tm_mon], t.tm_year);
+	sprintf(buff, "%02d-%3s-%04d", t.tm_mday, mon[t.tm_mon], 1900 + t.tm_year);
 	return buff;
 }
 // print a DIR like RT11
