@@ -61,6 +61,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <utime.h>
@@ -381,10 +382,13 @@ int hostdir_from_pdp_fs(hostdir_t *_this) {
 									stream->name));
 					file_write(pathbuff, stream->data, stream->data_size);
 					if (fileidx >= 0) {
+						int rc;
 						// regular file, not bootblock or monitor: set original file date
 						ut.modtime = mktime(&f->date);
 						ut.actime = mktime(&f->date);
-						utime(pathbuff, &ut);
+						rc = utime(pathbuff, &ut);
+						if (rc && opt_verbose)
+							warning("utime('%s') %d\n", pathbuff, errno);
 					}
 				}
 	}
@@ -529,12 +533,20 @@ static void hostdir_file_copy_from_pdp(hostdir_t *_this, hostdir_file_t *f) {
 	char pathbuff[4096];
 	file_t *fpdp;
 	file_stream_t *stream;
+	struct utimbuf ut;
 	sprintf(pathbuff, "%s/%s", _this->path, f->pdp_filnam_ext_stream);
 
 	fpdp = filesystem_file_get(_this->pdp_fs, f->pdp_fileidx); // also boot and monitor
 	stream = &fpdp->stream[f->pdp_streamidx];
-	if (!dbg_simulate)
+	if (!dbg_simulate) {
+		int rc;
 		file_write(pathbuff, stream->data, stream->data_size);
+		ut.modtime = mktime(&fpdp->date);
+		ut.actime = mktime(&fpdp->date);
+		rc = utime(pathbuff, &ut);
+		if (rc && opt_verbose)
+			warning("utime('%s') %d\n", pathbuff, errno);
+	}
 	if (opt_verbose)
 		info("Unit %d: Copied file \"%s\" from PDP to shared dir.", _this->unit, pathbuff);
 }
