@@ -137,6 +137,7 @@ int is_fileset(char *fpath, uint8_t val, uint32_t offset) {
 	FILE *f;
 	uint8_t b;
 	f = fopen(fpath, "r");
+	if (!f) return 0;
 	fseek(f, offset, SEEK_SET);
 	result = 1;
 	// inefficient byte loop
